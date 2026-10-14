@@ -82,6 +82,31 @@ public class SaveUiTests
         Assert.IsTrue(File.Exists(Path.Combine(store.Directory, "autosave.bad.txt")));
     }
 
+    /// <summary>N4 (R-SAVE-001, R-SAVE-002): a save from before the GDD cutover, or from a newer version, is refused with the
+    /// code's own string, in English and in Hebrew, and the player reads "a new game has started" once.</summary>
+    [TestCase("ruleset legacy", SaveException.OlderRules, "earlier version of the game's rules")]
+    [TestCase("ruleset gdd-0.2", SaveException.NewerVersion, "newer version of the game")]
+    public void ARefusedSaveIsSaidOnceInThePlayersLanguage(string ruleset, string code, string english)
+    {
+        var good = GameSession.New(C, 9, Mode.Historical).Save.Write();
+        StringAssert.Contains("\nruleset gdd-0.1\n", good);
+        foreach (var path in new[] { UiPaths.Strings, UiPaths.StringsHebrew })
+        {
+            var text = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(path).text);
+            var store = TempStore();
+            store.WriteAutosave(good.Replace("ruleset gdd-0.1", ruleset));
+            var notes = new List<string>();
+            LogAssert.Expect(LogType.Warning, new System.Text.RegularExpressions.Regex("Autosave rejected"));
+            var session = GameStart.Begin(C, store, () => 6UL, notes, text, out var resumed);
+            Assert.IsFalse(resumed);
+            Assert.AreEqual(0, session.State.Turn);
+            Assert.AreEqual(new[] { text["save.refused." + code] }, notes.ToArray(), path);
+        }
+        var en = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.Strings).text)["save.refused." + code];
+        StringAssert.Contains(english, en);
+        Assert.AreEqual(1, System.Text.RegularExpressions.Regex.Matches(en, "new game").Count, "said once (N4)");
+    }
+
     [Test]
     public void AReadThatFailsAndASetAsideThatFailsNeverStopTheStart()
     {

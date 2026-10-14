@@ -42,7 +42,10 @@ namespace Statecraft.Game.UI
                     // the player gets a short reason and the full exception goes to the log.
                     if (!(e is SaveException)) UnityEngine.Debug.LogWarning("Autosave could not be loaded: " + e);
                     else UnityEngine.Debug.LogWarning("Autosave rejected: " + e.Message);
-                    notes.Add(text.Format("save.unreadable", e is SaveException ? e.Message : text["save.reason_other"]));
+                    // A refusal with a code (a save from before the GDD cutover, or from a newer version: R-SAVE-001, R-SAVE-002)
+                    // is said once, in the player's language (N4); a damaged save shows the sim's reason in brackets.
+                    if (e is SaveException refused && refused.Code != null) notes.Add(text["save.refused." + refused.Code]);
+                    else notes.Add(text.Format("save.unreadable", e is SaveException ? e.Message : text["save.reason_other"]));
                 }
             }
             return GameSession.New(c, newSeed(), Mode.Historical);
