@@ -92,9 +92,11 @@ otherwise picks at random. With no `office`, a middling competence of 5 is used.
 ### from and to
 
 The window is half-open: the event can fire from `from` up to, not including, `to`. It fires on the first turn that
-overlaps the window. A turn is a week, a month or a quarter, depending on the period, so a window shorter than a turn can still
-fire, late. Put a comment above `from` saying why you chose the date, as the example does. The loader only requires
-`from`, and that `to` is later than `from`.
+overlaps the window. Turns are a month long and end on the 15th (15 June 1948, 15 July 1948, and so on, to the game's
+end on 15 January 1952), so a window shorter than a turn can still fire, late. For a decision card, open the window on
+the 15th on or before the historical decision, so the card reaches the player on the turn before it (R-TURN-002;
+`EventRetimingTests` pins each card's turn). Put a comment above `from` saying why you chose the date, as the example
+does. The loader only requires `from`, and that `to` is later than `from`.
 
 ### conditions
 

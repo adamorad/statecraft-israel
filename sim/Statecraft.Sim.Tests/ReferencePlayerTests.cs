@@ -12,10 +12,20 @@ public class ReferencePlayerTests
 {
     static readonly Content Mvp = ContentLoader.Load(RealContentTests.ContentRoot());
 
+    /// <summary>The game's start without its first card: since the cutover idf_founding is raised on 15 May, and answering
+    /// it at full war takes the Attention a halutz group needs (the golden run trains on a later turn). These tests check
+    /// the stated policy, not that turn.</summary>
+    static GameState Start()
+    {
+        var s = Simulation.NewGame(Mvp, GoldenRun.Seed, Mode.Historical);
+        s.PendingEvents.Clear();
+        return s;
+    }
+
     [Fact]
     public void ItSendsHistoricalAIsOrdersThenFillsTheJobsThenTrainsOneHalutzGroup()
     {
-        var s = Simulation.NewGame(Mvp, GoldenRun.Seed, Mode.Historical);
+        var s = Start();
         var orders = ReferencePlayer.Commands(Mvp, s);
         var history = HistoricalAI.Commands(Mvp, s);
         Assert.Equal(history.Select(x => x.Kind), orders.Take(history.Count).Select(x => x.Kind));
@@ -32,7 +42,7 @@ public class ReferencePlayerTests
     [Fact]
     public void ItTrainsNoHalutzWhenOneExistsOrTrainsOrNobodyIsFreeButDoesWithNoMoney()
     {
-        var s = Simulation.NewGame(Mvp, GoldenRun.Seed, Mode.Historical);
+        var s = Start();
         var training = Simulation.Step(Mvp, s, ReferencePlayer.Commands(Mvp, s)).State;
         Assert.Single(training.Cohorts);
         training.Treasury = 100;   // only the cohort in training holds it back: Money, Attention and free civilians are there
