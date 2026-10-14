@@ -78,7 +78,10 @@ imports_per_capita_per_year: 0.00025
 # war-period events (playtest 1 E, which moved the turn grid by a day): the range is 194.00 to 206.83 (bisection), and the
 # margins at 200 are reserves $18.2m at the turn ending 1951-05-27 and $20.9m at the turn covering 19 Oct (against $45m
 # falling due); first crisis in the turn ending 1952-02-27 (the one covering 31 Dec 1951); reserves -36.8 at the end of
-# the run. The value was not retuned.
+# the run. The value was not retuned. Re-measured at the GDD cutover (monthly turns, play ending 15 January 1952): the
+# anchor holds for 190.09 to 202.81 (bisection); at 200, reserves are $29.7m at the turn ending 1951-05-15 and $35.2m at
+# the turn covering 19 Oct (ending 1951-11-15), against $45m falling due; the first crisis is in the turn ending
+# 1951-12-15; reserves -13.0 at the game's end. The value was not retuned.
 capital_inflow_per_year: 200
 # While reserves are exhausted, food imports are cut: food_supply falls by this much per year.
 fx_crisis_food_per_year: -0.2
