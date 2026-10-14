@@ -30,10 +30,22 @@ public class SliceSmokeTests
 
     delegate List<Command> Policy(Content c, GameState s, int turn);
 
-    /// <summary>What GameRoot.Smoke does: answer each open event, in the card's order, with its first option button.</summary>
-    static List<Command> FirstOption(Content c, GameState s, int turn) =>
-        s.PendingEvents.Select(id => c.Events.First(e => e.Id == id))
-            .Select(e => (Command)new ChooseEventOption(e.Id, e.Options[0].Id)).ToList();
+    /// <summary>What GameRoot.Smoke does: answer each open event, in the card's order, with its first option button, while
+    /// the turn's Attention pays for an answer; the rest go to their ministers at the turn's end.</summary>
+    static List<Command> FirstOption(Content c, GameState s, int turn)
+    {
+        var answers = new List<Command>();
+        var left = s.Attention;
+        foreach (var e in s.PendingEvents.Select(id => c.Events.First(x => x.Id == id)))
+        {
+            var cmd = new ChooseEventOption(e.Id, e.Options[0].Id);
+            var price = AttentionSystem.Cost(c, s, cmd.Kind);
+            if (price > left + 1e-9) break;
+            left -= price;
+            answers.Add(cmd);
+        }
+        return answers;
+    }
 
     /// <summary>The golden runs' player (GoldenRun.Orders): HistoricalAI's orders, then the reference player's GDD orders.</summary>
     static List<Command> Historical(Content c, GameState s, int turn) => GoldenRun.Orders(c, s).ToList();

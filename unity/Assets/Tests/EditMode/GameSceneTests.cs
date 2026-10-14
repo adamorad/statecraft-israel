@@ -464,6 +464,29 @@ public class GameSceneTests
         Assert.IsFalse(bridge.Session.Last.Why.Any(w => w.Target == "armistice_egypt" && w.Message.StartsWith("Delegated")));
     }
 
+    /// <summary>Since the GDD cutover, 15 July 1948 brings three cards at full war, where an answer costs 2 of the 4
+    /// Attention: the smoke answers the two it can pay for and leaves the third to its minister, and the run still passes.</summary>
+    [Test]
+    public void TheSmokeRunLeavesACardItCannotPayForToItsMinister()
+    {
+        using var ui = new UiTestKit();
+        var c = Inputs.Content;
+        var g = GameSession.New(c, GoldenRun.Seed, Mode.Historical);
+        while (g.State.Date < new System.DateTime(1948, 7, 15)) g.Step(new Command[0]);
+        Assert.AreEqual(3, g.State.PendingEvents.Count, string.Join(", ", g.State.PendingEvents));
+        var text = Text;
+        var bridge = new SimBridge(g, text);
+        using var toast = new ToastPresenter(ui.Root, bridge, text);
+        using var hud = new HudPresenter(ui.Root, bridge, text);
+        using var card = new EventCardPresenter(ui.Root, bridge, text, null);
+        var log = new List<string>();
+        var run = GameRoot.Smoke(ui.Root, bridge, card, 1, log.Add);
+        while (run.MoveNext()) { }
+        StringAssert.StartsWith("SMOKE OK 1 turns 1948-08-15", log[log.Count - 1], string.Join("\n", log));
+        Assert.AreEqual(2, bridge.Session.Last!.Why.Count(w => w.System == "events" && w.Message.StartsWith("Chosen")));
+        Assert.AreEqual(1, bridge.Session.Last.Why.Count(w => w.System == "events" && w.Message.StartsWith("Delegated")));
+    }
+
     [Test]
     public void ASmokeRunWhoseEndTurnDoesNothingFails()
     {

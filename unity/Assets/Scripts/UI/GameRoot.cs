@@ -443,8 +443,9 @@ namespace Statecraft.Game.UI
             Debug.Log(CameraLine(rig.Distance, rig.Yaw));
         }
 
-        /// <summary>Plays turns the way a player does: answers each open event by pressing the card's first option button,
-        /// then presses End Turn. Logs "SMOKE turn &lt;n&gt; &lt;date&gt; refused &lt;k&gt;" per turn through <paramref name="log"/>,
+        /// <summary>Plays turns the way a player does: answers each open event by pressing the card's first option button
+        /// while the turn's Attention pays for an answer, then presses End Turn; a card left unanswered goes to its minister
+        /// (since the GDD cutover, 15 July 1948 brings three cards at full war, where an answer costs 2 of the 4). Logs "SMOKE turn &lt;n&gt; &lt;date&gt; refused &lt;k&gt;" per turn through <paramref name="log"/>,
         /// then "SMOKE OK &lt;n&gt; turns &lt;date&gt; &lt;hash&gt;", or "SMOKE FAIL &lt;reason&gt;" when a press does not take effect.
         /// Static, so an edit-mode test can drive it step by step.</summary>
         public static IEnumerator Smoke(VisualElement root, SimBridge bridge, EventCardPresenter card, int turns, Action<string> log)
@@ -455,6 +456,7 @@ namespace Statecraft.Game.UI
                 for (int guard = 0; card.Shown != null; guard++)
                 {
                     var shown = card.Shown;
+                    if (bridge.AttentionLeft + 1e-9 < AttentionSystem.Cost(bridge.Content, bridge.State, new ChooseEventOption(shown.Id, "").Kind)) break;
                     var option = root.Q<VisualElement>("event-options")?.Q<Button>();
                     if (option == null || guard >= 50) { log(FormattableString.Invariant($"SMOKE FAIL event {shown.Id} has no option to press")); yield break; }
                     if (!Press(option, log)) yield break;
