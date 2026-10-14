@@ -10,7 +10,7 @@ using Statecraft.Sim.Reference;
 /// goldens (#394), but no game mode or UI may reach it (controller decision on PR 3, 2026-10-14).</summary>
 public class ReferencePlayerTests
 {
-    static readonly Content Mvp = MvpSlice.Load(RealContentTests.ContentRoot());
+    static readonly Content Mvp = ContentLoader.Load(RealContentTests.ContentRoot());
 
     [Fact]
     public void ItSendsHistoricalAIsOrdersThenFillsTheJobsThenTrainsOneHalutzGroup()
@@ -145,12 +145,12 @@ public class ReferencePlayerTests
     [Fact]
     public void ItIssuesNoGddOrderInTheLegacyLoop()
     {
-        var c = ContentLoader.Load(RealContentTests.ContentRoot());
+        var c = ContentLoader.Load(Fixture.Write());   // the legacy loop (a fixture since the cutover)
         var s = Simulation.NewGame(c, GoldenRun.Seed, Mode.Historical);
         Assert.Equal(HistoricalAI.Commands(c, s).Select(x => x.Kind), ReferencePlayer.Commands(c, s).Select(x => x.Kind));
     }
 
-    /// <summary>Only the golden runner (MvpGolden) and tests may name it: no game mode, CLI command or Unity screen.</summary>
+    /// <summary>Only the golden runner (GoldenRun) and tests may name it: no game mode, CLI command or Unity screen.</summary>
     [Fact]
     public void NoGameModeOrUiReachesIt()
     {
@@ -164,7 +164,7 @@ public class ReferencePlayerTests
             .Select(Rel)
             .Where(f => !f.StartsWith("sim/Statecraft.Sim/Reference/", StringComparison.Ordinal) && !f.StartsWith("unity/Assets/Tests/", StringComparison.Ordinal))
             .OrderBy(f => f, StringComparer.Ordinal);
-        Assert.Equal(new[] { "sim/Statecraft.Sim/MvpGolden.cs" }, users);
+        Assert.Equal(new[] { "sim/Statecraft.Sim/GoldenRun.cs" }, users);
         Assert.Equal("Statecraft.Sim.Reference", typeof(ReferencePlayer).Namespace);
     }
 }

@@ -349,7 +349,7 @@ public class RealContentTests
     public void EveryEventOf1950And1951FiresInTheHistoricalPlaythrough()
     {
         var s = GoldenRun.Play(C, new DateTime(1952, 1, 1));
-        Assert.Null(s.GameOver);
+        Assert.Equal(GameOverCodes.MvpEnded, s.GameOver);   // the run reaches the game's end, 15 January 1952 (R-LOOP-004)
         var expected = new[] { "clothing_rationing_1950", "education_registration_1951", "forex_crisis_1951", "frumkin_commission",
             "hula_drainage", "iraqi_exodus", "israel_bonds", "law_of_return", "maabarot_policy", "ministry_supply_crisis", "reparations_claim" };
         var missing = expected.Where(id => !s.FiredEvents.Contains(id)).ToList();

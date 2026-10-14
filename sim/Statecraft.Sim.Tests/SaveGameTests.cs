@@ -527,7 +527,7 @@ public class SaveGameTests
     [Fact]
     public void AGddSaveNamesItsRulesetAndRoundTrips()
     {
-        var c = MvpSlice.Load(RealContentTests.ContentRoot());
+        var c = ContentLoader.Load(RealContentTests.ContentRoot());
         var g = GameSession.New(c, 1, Mode.Historical);
         g.Step(HistoricalAI.Commands(c, g.State));
         var text = g.Save.Write();
@@ -558,7 +558,7 @@ public class SaveGameTests
         var real = ContentLoader.Load(RealContentTests.ContentRoot());
         var g = GameSession.New(real, 1, Mode.Historical);
         g.Step(new Command[0]);
-        var gdd = MvpSlice.Load(RealContentTests.ContentRoot());
+        var gdd = ContentLoader.Load(RealContentTests.ContentRoot());
         var ex = Assert.Throws<SaveException>(() => GameSession.Load(gdd, g.Save.Write(), out _));
         Assert.Equal("This save was made with an earlier version of the game's rules; start a new game.", ex.Message);
         var v1 = g.Save.Write().Replace("statecraft-save 2\n", "statecraft-save 1\n").Replace("ruleset legacy\n", "");
@@ -569,7 +569,7 @@ public class SaveGameTests
     [Fact]
     public void ALegacyGameRefusesAGddSave()
     {
-        var gdd = MvpSlice.Load(RealContentTests.ContentRoot());
+        var gdd = ContentLoader.Load(RealContentTests.ContentRoot());
         var text = GameSession.New(gdd, 1, Mode.Historical).Save.Write();
         var ex = Assert.Throws<SaveException>(() => GameSession.Load(ContentLoader.Load(RealContentTests.ContentRoot()), text, out _));
         Assert.Equal("This save was made with another version of the game's rules; start a new game.", ex.Message);

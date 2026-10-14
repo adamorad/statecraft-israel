@@ -28,8 +28,8 @@ public class DefenceScreenTests
         {
             Assert.IsTrue(ui.Q<VisualElement>("rung-5").ClassListContains("rung-current"));
             Assert.IsFalse(ui.Q<VisualElement>("rung-2").ClassListContains("rung-current"));
-            Assert.AreEqual("turns of a week", ui.Q<Label>("rung-5-turn").text);
-            Assert.AreEqual("turns of a quarter", ui.Q<Label>("rung-1-turn").text);
+            for (int rung = 1; rung <= 5; rung++)   // the GDD game plays monthly turns on every rung (R-TURN-001)
+                Assert.AreEqual("turns of a month", ui.Q<Label>($"rung-{rung}-turn").text, $"rung {rung}");
             Assert.AreEqual("If full war goes on, the UN imposes a ceasefire in 52 weeks", ui.Q<Label>("ceasefire").text);
             Assert.AreEqual("Minister of Defense David Ben-Gurion · Chief of Staff Yaakov Dori", ui.Q<Label>("defence-command").text);
             Assert.AreEqual("80% of reserves called up (level 5 needs at least 80%)", ui.Q<Label>("mob-level").text);

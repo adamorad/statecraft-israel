@@ -8,11 +8,11 @@ using UnityEditor;
 using UnityEngine;
 
 /// <summary>The GDD orders through the UI's queue (#380): AssignWorkers, Train and CancelTraining queue in the slice
-/// (MvpSlice), an id the content or state does not have is refused before End Turn, an order replaces an earlier one
+/// (the real content, the GDD game since the cutover), an id the content or state does not have is refused before End Turn, an order replaces an earlier one
 /// with the same key, and the legacy loop's content queues none of them.</summary>
 public class SimBridgeGddTests
 {
-    static readonly Content Slice = MvpSlice.Load(Paths.Content);
+    static readonly Content Slice = ContentLoader.Load(Paths.Content);
     static readonly Content Legacy = ContentLoader.Load(Paths.Content);
     static UiText Text => UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.Strings).text);
     static SimBridge Bridge(Content c) => new SimBridge(GameSession.New(c, GoldenRun.Seed, Mode.Historical), Text);
