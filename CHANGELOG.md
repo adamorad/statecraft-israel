@@ -307,6 +307,24 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   +0.9 ms at the gameplay zoom), not yet on an idle one.
 
 ### Changed
+- **The GDD cutover (GDD Phase 2 PR 1, refs #382).** The real game now plays the GDD v0.1 loop on monthly turns, from
+  15 May 1948 to the game's end on 15 January 1952, 44 turns (owner decisions D-B1, D-E1, D-E5):
+  - `content/eras.yaml` sets `systems.loop: gdd` and `content/rules.yaml` sets `turn_lengths` all month (R-LOOP-001,
+    R-TURN-001) and `mvp.end: 1952-01-15` (R-LOOP-004; the game is then over, `mvp_ended`).
+  - The Phase 1 balance numbers move into `content/` unchanged as labelled design values (owner, Q-CUT-1): new
+    `content/cities.yaml` and `content/unit_types.yaml`, the rules' `mvp:` block and the GDD orders' Attention costs, each
+    tagged `# DESIGN VALUE` and listed by `DesignValuesTests` (R-LOOP-005). `attention_per_turn` stays 4 (Q-CUT-5); inertia
+    and the soft-event cap stay per turn (Q-CUT-6). The overlay `MvpSlice` and the `mvp-slice` golden are retired.
+  - Event windows re-timed for monthly turns (#567): `idf_founding`, `altalena` (15 June 1948, sourced; Q-CUT-7),
+    `jerusalem_military_government`, `latrun_proposal`, `operation_horev` and `elections_1949` open on the 15th on or
+    before their decision (R-TURN-002), so `sinai_withdrawal` and `rhodes_talks` fire again. The gap rule is restated in
+    months: 6, and 2 at full war (Q-CUT-8, R-TURN-003).
+  - Old saves are refused, said once in English or Hebrew: a save from before the cutover as made under earlier rules
+    (R-SAVE-001), and one from an unknown ruleset as made by a newer version (R-SAVE-002).
+  - The golden runs play the reference player, and every golden moves once: `hash1950` `5220f1ce`, `hash1952` and the new
+    `mvp-end` `98e4b10c`, `smoke5` `85191d48` (five turns end 15 October 1948), and the three scenarios
+    (docs/determinism.md). The browser smoke answers cards while the turn's Attention lasts. The Defence screen shows
+    monthly turns on every level. The arrivals line reads "wait for homes".
 - The map's region files (the 1948 sub-districts, the 1949 armistice lines, the 1948-49 control areas) are read
   from baked runtime forms at boot instead of being parsed as YAML (`tools/regions_bake.py`, refs #321), as the
   localities and the route paths are. The sub-districts are read once, for the camps and the region layers. A stale,
