@@ -13,7 +13,23 @@ using UnityEngine;
 public class SimBridgeGddTests
 {
     static readonly Content Slice = ContentLoader.Load(Paths.Content);
-    static readonly Content Legacy = ContentLoader.Load(Paths.Content);
+    /// <summary>The legacy loop: the real content without eras.yaml's loop switch (the real game runs gdd since the cutover).</summary>
+    static readonly Content Legacy = LoadLegacy();
+
+    static Content LoadLegacy()
+    {
+        const string loop = "    systems: { loop: gdd }\n";
+        var dir = Paths.Content;
+        var events = System.IO.Directory.GetFiles(System.IO.Path.Combine(dir, "events"), "*.yaml").Select(f => "events/" + System.IO.Path.GetFileName(f)).ToList();
+        Assert.IsTrue(System.IO.File.ReadAllText(System.IO.Path.Combine(dir, "eras.yaml")).Contains(loop), "eras.yaml has the switch to take out");
+        return ContentLoader.Load(rel =>
+        {
+            var path = System.IO.Path.Combine(dir, rel);
+            if (!System.IO.File.Exists(path)) return null;
+            var text = System.IO.File.ReadAllText(path);
+            return rel == "eras.yaml" ? text.Replace(loop, "") : text;
+        }, events);
+    }
     static UiText Text => UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.Strings).text);
     static SimBridge Bridge(Content c) => new SimBridge(GameSession.New(c, GoldenRun.Seed, Mode.Historical), Text);
 

@@ -338,6 +338,9 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
     `mvp-end` `75d38299`, `smoke5` `85191d48` (five turns end 15 October 1948), and the three scenarios
     (docs/determinism.md). The browser smoke answers cards while the turn's Attention lasts. The Defence screen shows
     monthly turns on every level. The arrivals line reads "wait for homes".
+  - Every new game now opens on a card (One Army, 15 May 1948), so a card under the start screen no longer asks for the
+    event photo catalog: it takes its photograph when the screen closes, and `GameRoot.Begin` stays free of that load
+    (refs #592, #321). Without a start screen (the automated runs) the visible card loads it at once.
 - The map's region files (the 1948 sub-districts, the 1949 armistice lines, the 1948-49 control areas) are read
   from baked runtime forms at boot instead of being parsed as YAML (`tools/regions_bake.py`, refs #321), as the
   localities and the route paths are. The sub-districts are read once, for the camps and the region layers. A stale,

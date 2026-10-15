@@ -32,6 +32,11 @@ namespace Statecraft.Game.UI
         readonly EventImageCatalog? photos;
         /// <summary>The catalog when the first event shows (EventPhotos.Get: off the boot path, issue #321), when photos is null.</summary>
         readonly System.Func<EventImageCatalog?>? photosLater;
+        /// <summary>While true, photosLater is not asked: the start screen covers the card (#592). The card asks again when the
+        /// layer comes out from under it (onUncovered).</summary>
+        readonly System.Func<bool>? photosDeferred;
+        /// <summary>The shown card skipped its photograph under the start screen and renders again when uncovered.</summary>
+        bool photoDeferred;
         readonly VisualElement band, head, scroll, options, layer, hudRoot; readonly Label credit;
         readonly Button hide, reopen, illustrationSwitch;
         readonly System.Action onHide, onReopen, onUncovered;
@@ -61,11 +66,15 @@ namespace Statecraft.Game.UI
         /// card never offers the Illustration switch.</param>
         /// <param name="clipFor">An event's clip (event-videos.yaml), or null when it has none.</param>
         /// <param name="photosLater">With no <paramref name="photos"/>: gives the catalog, asked only once an event shows.</param>
+        /// <param name="photosDeferred">While it returns true (the start screen is up), <paramref name="photosLater"/> is not
+        /// asked; the card asks when it comes out from under the start screen (#592: since the GDD cutover every new game opens
+        /// on a card, which would otherwise load the catalog in GameRoot.Begin).</param>
         public EventCardPresenter(VisualElement root, SimBridge bridge, UiText text, PortraitCatalog? portraits, EventImageCatalog? photos = null,
-            CardVideo? video = null, System.Func<string, EventVideoMapping.Row?>? clipFor = null, System.Func<EventImageCatalog?>? photosLater = null)
+            CardVideo? video = null, System.Func<string, EventVideoMapping.Row?>? clipFor = null, System.Func<EventImageCatalog?>? photosLater = null,
+            System.Func<bool>? photosDeferred = null)
         {
             this.video = clipFor == null ? null : video; this.clipFor = clipFor;
-            card = root.Q<VisualElement>("event-card"); this.bridge = bridge; this.text = text; this.portraits = portraits; this.photos = photos; this.photosLater = photosLater;
+            card = root.Q<VisualElement>("event-card"); this.bridge = bridge; this.text = text; this.portraits = portraits; this.photos = photos; this.photosLater = photosLater; this.photosDeferred = photosDeferred;
             band = card.Q<VisualElement>("event-photo"); credit = card.Q<Label>("event-photo-credit");
             // The band and its credit settle the drop (FitPhoto); the column, which only the window sizes, brings a dropped
             // photograph back when the window grows. A hidden element keeps its old layout, so a band shown again at the
@@ -77,7 +86,11 @@ namespace Statecraft.Game.UI
             hide.text = text["event.hide"]; reopen.text = text["event.reopen"];
             card.Q<Label>("event-draft").text = text["event.draft"];
             onHide = Collapse; onReopen = Reopen;
-            onUncovered = () => { focusedFor = null; if (Shown != null && !Collapsed) FocusCard(Shown.Id, force: true); };
+            onUncovered = () =>
+            {
+                if (photoDeferred) Render();   // the start screen has gone: the card now takes its photograph (#592)
+                focusedFor = null; if (Shown != null && !Collapsed) FocusCard(Shown.Id, force: true);
+            };
             onHidePointer = _ => hideByPointer = true;
             onHideSubmit = _ => hideByPointer = false;
             onCancel = e => { if (Escape()) e.StopPropagation(); };
@@ -176,7 +189,8 @@ namespace Statecraft.Game.UI
             var date = EventSystem.FillDate(e, s.Date);
             var holder = e.Office == "" ? null : Cabinet.Holder(c, s, e.Office, date);
             // The header photograph when the event has one; otherwise the minister's portrait plate (the fallback).
-            var photo = (photos ?? photosLater?.Invoke())?.Find(e.Id);
+            photoDeferred = photos == null && photosDeferred?.Invoke() == true;
+            var photo = (photos ?? (photoDeferred ? null : photosLater?.Invoke()))?.Find(e.Id);
             var row = video != null && photo != null && !failed.Contains(e.Id) ? clipFor!(e.Id) : null;
             clip = row == null ? null : CardVideo.Url(row.File); clipAlt = row?.Alt;
             ShowPhoto(photo);
