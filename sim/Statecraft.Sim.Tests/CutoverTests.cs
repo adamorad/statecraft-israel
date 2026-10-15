@@ -60,13 +60,14 @@ public class CutoverTests
     public void NoTurnIsAdjustedInsideTheMvp()
     {
         var s = Simulation.NewGame(C, GoldenRun.Seed, Mode.Historical);
-        while (s.GameOver == null)
+        while (s.GameOver == null && s.Turn < 1000)   // capped: a broken end must fail, not hang
         {
             var before = s.Date;
             s = Simulation.Step(C, s, HistoricalAI.Commands(C, s)).State;
             Assert.Equal(before.AddMonths(1), s.Date);
             Assert.Equal(15, s.Date.Day);
         }
+        Assert.Equal(GameOverCodes.MvpEnded, s.GameOver);
     }
 
     // R-LOOP-004

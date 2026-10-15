@@ -50,7 +50,7 @@ public class ReferencePlayerTests
         Assert.Contains(first, x => x is AssignWorkers);
         Assert.DoesNotContain(first, x => x is Train);
         DateTime? trained = null;
-        while (trained == null && s.GameOver == null)
+        while (trained == null && s.GameOver == null && s.Turn < 1000)
         {
             var orders = ReferencePlayer.Commands(Mvp, s);
             var r = Simulation.Step(Mvp, s, orders);

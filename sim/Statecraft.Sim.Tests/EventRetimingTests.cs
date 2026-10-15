@@ -86,12 +86,32 @@ public class EventRetimingTests
     {
         var gaps = Gaps(Run);
         Assert.NotEmpty(gaps);
-        var bad = gaps.Where(g => g.Months > (g.AtWar ? MaxMonthsAtWar : MaxMonths)).Select(Describe).ToList();
+        var bad = gaps.Where(TooLong).Select(Describe).ToList();
         Assert.True(bad.Count == 0, "stretches without a card: " + string.Join("; ", bad));
         Assert.Contains(gaps, g => g.AtWar);   // the war period is measured, not skipped
     }
 
     public const int MaxMonths = 6, MaxMonthsAtWar = 2;
+
+    /// <summary>R-TURN-003's limit for one stretch: 6 months, or 2 at full war.</summary>
+    public static bool TooLong((DateTime From, DateTime To, int Months, bool AtWar) g) => g.Months > (g.AtWar ? MaxMonthsAtWar : MaxMonths);
+
+    /// <summary>The owner's numbers (Q-CUT-8: "6 months, 2 in wartime"), pinned on both sides of each limit, and the real run's
+    /// longest stretches, which sit exactly on them: a limit raised or lowered fails here.</summary>
+    // R-TURN-003
+    [Fact]
+    public void TheLimitsAreSixMonthsAndTwoAtWar()
+    {
+        var d = new DateTime(1950, 1, 15);
+        (DateTime, DateTime, int, bool) G(int months, bool war) => (d, d.AddMonths(months), months, war);
+        Assert.False(TooLong(G(6, false)));
+        Assert.True(TooLong(G(7, false)));
+        Assert.False(TooLong(G(2, true)));
+        Assert.True(TooLong(G(3, true)));
+        var gaps = Gaps(Run);
+        Assert.Equal(6, gaps.Where(g => !g.AtWar).Max(g => g.Months));   // 15 May to 15 November 1951
+        Assert.Equal(2, gaps.Where(g => g.AtWar).Max(g => g.Months));    // 15 July to 15 September 1948, 15 January to 15 March 1949
+    }
 
     public static List<(DateTime From, DateTime To, int Months, bool AtWar)> Gaps(List<GameState> run)
     {
