@@ -7,6 +7,19 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
 
 ## [Unreleased]
 
+### Changed
+- Event timing for monthly turns (refs #382; lands with the GDD cutover, Phase 2 PR 1; owner decisions of 15 October 2026
+  on #567): six war-period windows open on the monthly turn date before their decision (`idf_founding`,
+  `jerusalem_military_government`, `latrun_proposal`, `operation_horev`, `elections_1949`; `operation_horev` also lets
+  `sinai_withdrawal` and `rhodes_talks` fire again). `ten_days`, `bernadotte_assassination`, `operation_hiram`,
+  `jerusalem_ceasefire` and `sinai_withdrawal` are rewritten as decisions during or after the fact; Hiram loses its
+  "protest to the UN" option. `altalena` opens on 15 June 1948 without the Kfar Vitkin clause (Q-CUT-7). The owner
+  re-reviewed the four changed sensitive events on 15 October 2026 ("Approve all 4", #600).
+  Sensitive events may no longer raise food, morale or international standing either (Q-EFX-2): the gains in `altalena`,
+  `bernadotte_assassination` and `reparations_claim` are removed, and each of those options carries a small cost in
+  another resource instead (Q-EFX-3, design values; the reparations claim's is Money, #600). The event-gap ruling is restated in months: 6, and 2 in wartime
+  (Q-CUT-8). Every golden moves; the cutover re-pins them once.
+
 ### Added
 - GDD v0.1 Phase 1, the Unity queue takes the GDD orders (refs #380): `AssignWorkers`, `Train` and `CancelTraining`
   now queue in the slice, one per city, per city and track, and per cohort; an unknown city, training track or cohort is

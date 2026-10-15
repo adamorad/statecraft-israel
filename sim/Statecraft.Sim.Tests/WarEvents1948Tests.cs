@@ -11,6 +11,10 @@ public class WarEvents1948Tests
     static readonly DateTime Start = new DateTime(1948, 5, 15);
     static readonly DateTime EgyptArmistice = new DateTime(1949, 2, 24);
 
+    /// <summary>The longest time, in months, from one card of the historical run to the next, up to the Egyptian armistice
+    /// card. Controller ruling, fix round 1, I7, restated in months: owner decision of 15 October 2026 (Q-CUT-8, "6 months,
+    /// 2 in wartime", #375).</summary>
+
     static DateTime D(int y, int m, int d) => new DateTime(y, m, d);
 
     /// <summary>Id; the historical option; the security level it sets (null: unchanged); the responsible office and its
@@ -21,39 +25,32 @@ public class WarEvents1948Tests
         ("idf_founding", "one_army", null, "defense_minister", "ben_gurion", 2, D(1948, 5, 26)),         // order signed (§3a)
         ("first_truce", "accept", null, "prime_minister", "ben_gurion", 2, D(1948, 6, 10)),              // acceptance sent (§1)
         ("altalena", "enforce", null, "defense_minister", "ben_gurion", 2, D(1948, 6, 20)),              // force authorised (§2)
-        ("ten_days", "central_front", 5, "defense_minister", "ben_gurion", 2, D(1948, 7, 9)),            // Dani begins (§4)
+        ("ten_days", "central_front", 5, "defense_minister", "ben_gurion", 2, D(1948, 7, 18)),           // the second truce ends the fighting (§4, §5)
         ("second_truce", "comply", 4, "prime_minister", "ben_gurion", 2, D(1948, 7, 18)),                // truce in force (§5)
         ("jerusalem_military_government", "military_government", null, "prime_minister", "ben_gurion", 2, D(1948, 8, 2)),
-        ("bernadotte_assassination", "outlaw", null, "prime_minister", "ben_gurion", 2, D(1948, 9, 20)),  // ultimatum (§6)
+        ("bernadotte_assassination", "outlaw", null, "prime_minister", "ben_gurion", 2, D(1948, 9, 23)),  // ordinance adopted (§6)
         ("latrun_proposal", "accept_vote", null, "prime_minister", "ben_gurion", 2, D(1948, 9, 26)),     // cabinet vote (§13a)
         ("operation_yoav", "stop_at_ceasefire", 5, "defense_minister", "ben_gurion", 2, D(1948, 10, 22)), // Hebron refused, cease-fire (§7)
-        ("operation_hiram", "launch", 5, "defense_minister", "ben_gurion", 3, D(1948, 10, 28)),          // launched night of 28-29 Oct (§8)
-        ("jerusalem_ceasefire", "sign", null, "prime_minister", "ben_gurion", 2, D(1948, 11, 30)),       // signed (§13b)
+        ("operation_hiram", "stop_at_ceasefire", 5, "defense_minister", "ben_gurion", 2, D(1948, 10, 31)), // cease-fire (§8)
+        ("jerusalem_ceasefire", "keep", null, "prime_minister", "ben_gurion", 2, D(1948, 11, 30)),       // signed (§13b)
         ("operation_horev", "launch", 5, "defense_minister", "ben_gurion", 2, D(1948, 12, 22)),          // launched (§9)
-        ("sinai_withdrawal", "withdraw", null, "prime_minister", "ben_gurion", 2, D(1949, 1, 1)),        // orders given (§9, FRUS d341)
+        ("sinai_withdrawal", "withdraw", null, "prime_minister", "ben_gurion", 2, D(1949, 1, 2)),        // withdrawn (§9, FRUS d371)
         ("rhodes_talks", "send_delegation", null, "foreign_minister", "sharett", 2, D(1949, 1, 13)),     // talks open (§9)
         ("elections_1949", "hold", null, "prime_minister", "ben_gurion", 1, D(1949, 1, 25)),             // the vote (§11)
     };
 
-    /// <summary>Cards allowed to reach the player after DecidedBy, by at most so many days, and why. On monthly turns no turn
-    /// date falls between the fact the card states and the decision (owner, 15 October 2026, #567 Q1 (a)).</summary>
+    /// <summary>Cards allowed to reach the player up to Days after DecidedBy, and why (owner decision, 15 October 2026, #567:
+    /// on monthly turns no turn date falls between the fact each card states and the decision).</summary>
     static readonly Dictionary<string, (int Days, string Why)> LateByDesign = new Dictionary<string, (int, string)>
     {
-        ["first_truce"] = (5, "no monthly turn date between resolution 50 of 29 May and the acceptance of 10 June"),
-        ["rhodes_talks"] = (2, "it needs Horev answered first, so it comes on 15 January, two days after the talks opened"),
+        ["first_truce"] = (5, "no monthly turn date between the resolution of 29 May and the acceptance of 10 June"),
+        ["rhodes_talks"] = (2, "it needs Horev answered, so it comes on 15 January, after the talks opened on 13 January"),
     };
 
-    /// <summary>The five war cards PR 1a (#577) rewrites as decisions taken during or after the fact (owner, 15 October 2026,
-    /// #567 Q1 (b) and Q3). Until it lands they arrive after the decision their current text asks for, on these dates;
-    /// PR 1a moves their DecidedBy and removes them from this list.</summary>
-    static readonly Dictionary<string, DateTime> AwaitingRewrite = new Dictionary<string, DateTime>
-    {
-        ["ten_days"] = D(1948, 7, 15),
-        ["bernadotte_assassination"] = D(1948, 10, 15),
-        ["operation_hiram"] = D(1948, 11, 15),
-        ["jerusalem_ceasefire"] = D(1948, 12, 15),
-        ["sinai_withdrawal"] = D(1949, 1, 15),
-    };
+    /// <summary>Cards that are decisions after the fact (owner decision, 15 October 2026, #567): their text states what
+    /// happened, so the card must come on or after DecidedBy, the last fact it states.</summary>
+    static readonly HashSet<string> AfterTheFact = new HashSet<string>
+        { "bernadotte_assassination", "operation_hiram", "jerusalem_ceasefire", "sinai_withdrawal" };
 
     /// <summary>Follow-up events and the earlier choice they depend on (review I2).</summary>
     public static readonly (string Id, string Event, string Option)[] Chains =
@@ -154,11 +151,11 @@ public class WarEvents1948Tests
         public int RungAfter;
     }
 
-    /// <summary>Plays to March 1949 with HistoricalAI, except that <paramref name="pick"/> may choose another option. The
-    /// first entry is the new game: a card raised on 15 May 1948 (idf_founding) comes then.</summary>
+    /// <summary>Plays to March 1949 with HistoricalAI, except that <paramref name="pick"/> may choose another option.</summary>
     static List<Turn> Play(Func<string, string?>? pick = null)
     {
         var s = Simulation.NewGame(C, GoldenRun.Seed, Mode.Historical);
+        // The first entry is the new game: a card raised on 15 May 1948 (idf_founding) comes then.
         var turns = new List<Turn> { new Turn { Start = s.Date, End = s.Date, Raised = s.FiredEvents.ToList(), RungAfter = s.Rung } };
         while (s.Date < new DateTime(1949, 3, 1) && s.GameOver == null)
         {
@@ -182,12 +179,13 @@ public class WarEvents1948Tests
 
     /// <summary>The date of the card for <paramref name="id"/>: the end of the turn that raised it.</summary>
     static DateTime CardDate(string id) =>
-        Run.FirstOrDefault(t => t.Raised.Contains(id))?.End ?? throw new Xunit.Sdk.XunitException($"{id} never fired in the historical run");
+        AtStart.Contains(id) ? Start
+        : Run.FirstOrDefault(t => t.Raised.Contains(id))?.End ?? throw new Xunit.Sdk.XunitException($"{id} never fired in the historical run");
 
-    /// <summary>R-TURN-002: on monthly turns each window opens on the 15th on or before the decision, so the card reaches
-    /// the player in a turn that starts by the historical decision (review I1, I7; #567 section 4), except the cards late by
-    /// design and those PR 1a rewrites.</summary>
-    // R-TURN-002
+    /// <summary>The cards the new game raises on its first day (idf_founding opens on 15 May).</summary>
+    static readonly HashSet<string> AtStart = new HashSet<string>(Simulation.NewGame(C, GoldenRun.Seed, Mode.Historical).FiredEvents);
+
+    /// <summary>The card reaches the player in a turn that starts by the historical decision (review I1, I7).</summary>
     [Theory]
     [MemberData(nameof(Ids))]
     public void TheCardArrivesBeforeTheHistoricalDecision(string id)
@@ -196,10 +194,10 @@ public class WarEvents1948Tests
         var card = CardDate(id);
         var e = Get(id);
         Assert.True(card >= e.From && card < e.To!.Value.AddDays(31), $"{id}: card {card:yyyy-MM-dd} far from its window");
-        if (LateByDesign.TryGetValue(id, out var late))
-            Assert.True(card > row.DecidedBy && card <= row.DecidedBy.AddDays(late.Days), $"{id}: card {card:yyyy-MM-dd}, not within {late.Days} days after {row.DecidedBy:yyyy-MM-dd} ({late.Why})");
-        else if (AwaitingRewrite.TryGetValue(id, out var on))
-            Assert.Equal(on, card);
+        if (AfterTheFact.Contains(id))
+            Assert.True(card >= row.DecidedBy, $"{id}: card {card:yyyy-MM-dd}, before the facts of {row.DecidedBy:yyyy-MM-dd} it states");
+        else if (LateByDesign.TryGetValue(id, out var late))
+            Assert.True(card <= row.DecidedBy.AddDays(late.Days), $"{id}: card {card:yyyy-MM-dd}, more than {late.Days} days after {row.DecidedBy:yyyy-MM-dd} ({late.Why})");
         else
             Assert.True(card <= row.DecidedBy, $"{id}: card {card:yyyy-MM-dd}, after the historical decision of {row.DecidedBy:yyyy-MM-dd}");
     }
@@ -217,7 +215,7 @@ public class WarEvents1948Tests
     public void TheHistoricalRunMovesThroughTheTruces()
     {
         int After(string id) => Run.Single(t => t.Start == CardDate(id) && t.End > t.Start).RungAfter;   // the turn answering the card
-        Assert.Equal(4, After("second_truce"));       // the second truce
+        Assert.Equal(4, After("second_truce"));       // the second truce: monthly turns
         Assert.Equal(5, After("operation_yoav"));     // Yoav ends it
         Assert.Equal(5, After("sinai_withdrawal"));   // full war until the armistice with Egypt
     }
@@ -237,6 +235,22 @@ public class WarEvents1948Tests
             var last = rows.OrderBy(x => x.DecidedBy).ThenBy(x => Get(x.Id).From).ThenBy(x => x.Id, StringComparer.Ordinal).Last();
             Assert.True(last.Rung == Run[i + 1].RungAfter, $"card {Run[i].End:yyyy-MM-dd}: the turn ends at level {Run[i + 1].RungAfter}, not {last.Rung} ({last.Id}, decided last)");
         }
+    }
+
+    /// <summary>R-TURN-003 in the war period: no more than 2 months pass from one card to the next while the country is at
+    /// full war on any turn of the stretch (owner, 15 October 2026: "Full-war level = wartime", SecuritySystem.AtFullWar), the
+    /// same rule and predicate as EventRetimingTests.NoLongStretchWithoutACard, on the golden run up to March 1949.</summary>
+    // R-TURN-003
+    [Fact]
+    public void NoLongStretchWithoutACard()
+    {
+        var s = Simulation.NewGame(C, GoldenRun.Seed, Mode.Historical);
+        var run = new List<GameState> { s };
+        while (s.Date < new DateTime(1949, 3, 1) && s.GameOver == null) { s = Simulation.Step(C, s, GoldenRun.Orders(C, s)).State; run.Add(s); }
+        var war = EventRetimingTests.Gaps(run).Where(g => g.AtWar).ToList();
+        Assert.NotEmpty(war);
+        var bad = war.Where(EventRetimingTests.TooLong).Select(g => $"{g.From:yyyy-MM-dd} to {g.To:yyyy-MM-dd}").ToList();
+        Assert.True(bad.Count == 0, "stretches at full war without a card: " + string.Join("; ", bad));
     }
 
     /// <summary>A follow-up card never fires when the player chose otherwise earlier (review I2).</summary>
