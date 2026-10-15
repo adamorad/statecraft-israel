@@ -224,7 +224,8 @@ public class WarEvents1948Tests
 
     /// <summary>Two cards whose historical options set different security levels may come on the same turn on monthly turns
     /// (15 July 1948: ten_days at 5 and second_truce at 4). Answered in the card's order (window start, then id), the turn
-    /// must end at the level of the decision taken last in history, so the historical run keeps the historical level.</summary>
+    /// must end at the level of the decision taken last in history (on the same day, the card answered last), so the historical
+    /// run keeps the historical level.</summary>
     [Fact]
     public void ATurnAskingForTwoSecurityLevelsEndsAtTheLaterDecisionsLevel()
     {
@@ -232,7 +233,8 @@ public class WarEvents1948Tests
         {
             var rows = Run[i].Raised.Select(id => Events.SingleOrDefault(x => x.Id == id)).Where(x => x.Id != null && x.Rung.HasValue).ToList();
             if (rows.Select(x => x.Rung).Distinct().Count() <= 1) continue;
-            var last = rows.OrderBy(x => x.DecidedBy).Last();
+            // Decided last in history; on the same day, the card answered last (the card order: window start, then id).
+            var last = rows.OrderBy(x => x.DecidedBy).ThenBy(x => Get(x.Id).From).ThenBy(x => x.Id, StringComparer.Ordinal).Last();
             Assert.True(last.Rung == Run[i + 1].RungAfter, $"card {Run[i].End:yyyy-MM-dd}: the turn ends at level {Run[i + 1].RungAfter}, not {last.Rung} ({last.Id}, decided last)");
         }
     }
