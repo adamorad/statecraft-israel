@@ -381,6 +381,9 @@ namespace Statecraft.Game.UI
         void Shutdown()
         {
             StopAllCoroutines();
+            // First: disposing the start screen uncovers the decision layer, and the dying card must not then load the photo
+            // catalog for a start screen that is only going away (its photosDeferred reads start; #592).
+            start = null;
             for (int i = owned.Count - 1; i >= 0; i--) owned[i].Dispose();
             owned.Clear();
             minimap = null; labels = null; nav = null; start = null; card = null; outcomes = null; rig = null; drawn = null; units = null; Regions = null; logCamera = false;
