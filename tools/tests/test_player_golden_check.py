@@ -110,17 +110,20 @@ def test_plan_lists_all_three_players_with_githubs_digests():
          "sha256": digest(lin)[7:]},
         {"platform": "macos", "label": "macos arm64", "runner": "macos-15", "arch": "arm64", "asset": mac,
          "sha256": digest(mac)[7:]},
-        {"platform": "macos", "label": "macos x86_64", "runner": "macos-15-intel", "arch": "x86_64", "asset": mac,
+        {"platform": "macos", "label": "macos x86_64", "runner": "macos-15", "arch": "x86_64", "asset": mac,
          "sha256": digest(mac)[7:]},
     ]
 
 
-def test_the_mac_player_runs_on_apple_silicon_and_on_intel():
-    # Review S3: the Universal app has two native IL2CPP slices; each is run on its own CPU, never under Rosetta.
-    assert pg.RUNNERS["macos"] == [("macos-15", "arm64"), ("macos-15-intel", "x86_64")]
+def test_the_mac_player_runs_both_slices_on_apple_silicon():
+    # Review S3: the Universal app has two native IL2CPP slices and each is checked on its own. #548: GitHub retires
+    # macos-15-intel, its last x86_64 image, in August 2027, so the x86_64 slice runs under Rosetta on the arm64 runner
+    # (`arch -x86_64`, MAC_SLICE) and no runner is an Intel one.
+    assert pg.RUNNERS["macos"] == [("macos-15", "arm64"), ("macos-15", "x86_64")]
     include, _, ok = pg.plan("v0.2.0", release("v0.2.0", *players("v0.2.0")), "workflow_dispatch")
     assert ok and [(e["runner"], e["arch"]) for e in include if e["platform"] == "macos"] == [
-        ("macos-15", "arm64"), ("macos-15-intel", "x86_64")]
+        ("macos-15", "arm64"), ("macos-15", "x86_64")]
+    assert not any("intel" in e["runner"] for e in include)
     assert len({e["label"] for e in include}) == len(include)   # the job names differ
 
 
@@ -264,7 +267,15 @@ def test_the_linux_player_runs_under_a_virtual_x_display_and_the_others_run_bare
     args = [str(exe), "-batchmode", "-nographics", "-golden", "-logFile", str(log.resolve())]
     assert pg.player_command(exe, log, "linux") == ["xvfb-run", "-a", *args]
     assert pg.player_command(exe, log, "windows") == args
-    assert pg.player_command(exe, log, "macos") == args
+
+
+def test_the_mac_player_runs_the_slice_it_checks(tmp_path):
+    # #548: a Universal app started bare runs the runner's native slice, so each slice is started through `arch`: the
+    # x86_64 one under Rosetta on an arm64 runner.
+    exe, log = tmp_path / "Statecraft Israel", tmp_path / "player.log"
+    args = [str(exe), "-batchmode", "-nographics", "-golden", "-logFile", str(log.resolve())]
+    assert pg.player_command(exe, log, "macos", "x86_64") == ["arch", "-x86_64", *args]
+    assert pg.player_command(exe, log, "macos", "arm64") == ["arch", "-arm64", *args]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="the fake player is a shell script")
@@ -444,19 +455,29 @@ def test_arch_is_required_for_macos_and_refused_elsewhere(tmp_path, capsys):
 
 
 @pytest.mark.skipif(sys.platform != "darwin" or not shutil.which("ditto"), reason="needs ditto, lipo and uname")
-def test_run_refuses_a_mac_runner_of_the_other_architecture_before_running(tmp_path, capsys):
-    # Review T53 nit: pins the call into check_arch (the `if a.arch:` wiring), not only check_arch itself.
+def test_run_refuses_a_mac_slice_the_runner_cannot_run_before_running(tmp_path, capsys, monkeypatch):
+    # Review T53 nit: pins the call into check_arch (the `if a.arch:` wiring), not only check_arch itself. #548: the
+    # CPU is read through `arch -<slice>` as the player is started, so an Intel runner reporting x86_64 for an arm64
+    # check, or an arm64 runner without Rosetta, is refused before the player runs.
     (tmp_path / "manifest.txt").write_text(MANIFEST)
     macos = tmp_path / "build" / "Statecraft.app" / "Contents" / "MacOS"
     macos.mkdir(parents=True)
     shutil.copy("/usr/bin/true", macos / "Statecraft Israel")
     z = mac_release_zip(tmp_path)
-    here = subprocess.run(["uname", "-m"], capture_output=True, text=True, check=True).stdout.strip()
-    other = "x86_64" if here == "arm64" else "arm64"
-    code = pg.main(["run", "--platform", "macos", "--arch", other, "--manifest", str(tmp_path / "manifest.txt"),
+    real_run = subprocess.run
+    seen = []
+
+    def fake_run(cmd, *a, **k):
+        seen.append(cmd)
+        if cmd[-2:] == ["uname", "-m"]:
+            return subprocess.CompletedProcess(cmd, 0, "x86_64\n", "")   # an Intel runner, or Rosetta
+        return real_run(cmd, *a, **k)
+    monkeypatch.setattr(pg.subprocess, "run", fake_run)
+    code = pg.main(["run", "--platform", "macos", "--arch", "arm64", "--manifest", str(tmp_path / "manifest.txt"),
                     "--archive", str(z), "--sha256", pg.sha256(z), "--work", str(tmp_path / "w")])
     out = capsys.readouterr().out
-    assert code == 2 and f"the runner is {here}, not {other}: check the runner label" in out and "RUN " not in out
+    assert code == 2 and "the runner is x86_64, not arm64: check the runner label" in out and "RUN " not in out
+    assert ["arch", "-arm64", "uname", "-m"] in seen
 
 
 def mac_release_zip(tmp_path, notices=pg.REQUIRED_NOTICES, extra=()):
