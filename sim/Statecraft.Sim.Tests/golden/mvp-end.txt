@@ -2,8 +2,8 @@
 ind{
   food_supply=0.8566666665875042 [3FEB69D036922222]
   housing=0.43504947742483624 [3FDBD7D9C36B9EB6]
-  intl_standing=0.8300000000000003 [3FEA8F5C28F5C292]
-  morale=0.4588039705804806 [3FDD5D0B543AC252]
+  intl_standing=0.7800000000000002 [3FE8F5C28F5C28F8]
+  morale=0.4388039705804806 [3FDC155D3FBFE10A]
   security=0.5361322526321604 [3FE127FED36C599C]
 pol{
   border_settlement=0.2 [3FC999999999999A]
@@ -20,8 +20,8 @@ eff{
 shift{
   food_supply=0.11666666666666659 [3FBDDDDDDDDDDDD8]
   housing=0 [0000000000000000]
-  intl_standing=0.3300000000000003 [3FD51EB851EB8524]
-  morale=-0.06000000000000005 [BFAEB851EB851EC0]
+  intl_standing=0.28000000000000025 [3FD1EB851EB851F0]
+  morale=-0.08000000000000007 [BFB47AE147AE1480]
   security=0.19500000000000017 [3FC8F5C28F5C28FC]
 bud{
   agriculture_minister=0.07 [3FB1EB851EB851EC]
@@ -42,11 +42,11 @@ pop{
 sit[
   fx_crisis
 treasury=0 [0000000000000000]
-debt=154.01852642452684 [40634097C4BA6E8C]
+debt=157.01852642452684 [4063A097C4BA6E8C]
 fx=-12.990431328096559 [C029FB19D0A63796]
 rung=2;cf=0;
 mob=0.05 [3FA999999999999A]
-stab=0.5185161542016572 [3FE097AF3097CD4C]
+stab=0.5095235022822947 [3FE04E043B5B1119]
 att=4 [4010000000000000]
 fired[
   altalena
@@ -99,13 +99,13 @@ chosen{
   idf_founding=one_army
   iraqi_exodus=airlift
   israel_bonds=launch
-  jerusalem_ceasefire=sign
+  jerusalem_ceasefire=keep
   jerusalem_military_government=military_government
   latrun_proposal=accept_vote
   law_of_return=enact
   maabarot_policy=maabarot
   ministry_supply_crisis=restructure
-  operation_hiram=launch
+  operation_hiram=stop_at_ceasefire
   operation_horev=launch
   operation_yoav=stop_at_ceasefire
   reparations_claim=claim
@@ -123,4 +123,6 @@ city{
 coh=0.45212082262210795 [3FDCEF8C2CC02A1E]
 units[
   1:halutz@-3,19
+site{
+  mefalsim=done,1949-06-15
 next=2

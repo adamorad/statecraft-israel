@@ -28,9 +28,9 @@ final `GameState.Hash()` is pinned:
 
 | Run | Ends | Hash |
 |---|---|---|
-| to 1950-01-01 (`Hash1950`) | 1950-01-15, turn 20 | `5220f1ce42f50b206d34422ce5964f9cbedde4341e1026d34ba75f02a2d3fcbf` |
-| to 1952-01-01 (`Hash1952`) | 1952-01-15, turn 44 (the game's end) | `98e4b10cd5f8ccef9cac5b942b6e374a28a073bd1fe67ce5362d350a40b2b8be` |
-| to the game's end (`mvp-end`) | 1952-01-15, turn 44 | `98e4b10cd5f8ccef9cac5b942b6e374a28a073bd1fe67ce5362d350a40b2b8be` |
+| to 1950-01-01 (`Hash1950`) | 1950-01-15, turn 20 | `f97e9f81d1feaee78c55847e1fc42f8e60bd9f12c84d234f0d10002f9dae48f2` |
+| to 1952-01-01 (`Hash1952`) | 1952-01-15, turn 44 (the game's end) | `75d382995d0f12f0eed772dd851906831990b0ab830c10f3a0af310da0547f31` |
+| to the game's end (`mvp-end`) | 1952-01-15, turn 44 | `75d382995d0f12f0eed772dd851906831990b0ab830c10f3a0af310da0547f31` |
 
 `hash1952` stops at the first turn on or after 1 January 1952, which is the game's last turn, so it is the same run as
 `mvp-end` (`DeterminismTests.TheWholeGameToItsEndIsFixed`). Both names are kept (spec 2026-10-12 section 3 step 6): a
@@ -45,8 +45,8 @@ Check every build with:
 
 ```
 uv run tools/web_check.py unity/Builds/Web-<compression> --query "golden&smoke=5" \
-  --expect "GOLDEN OK 1950 5220f1ce42f50b206d34422ce5964f9cbedde4341e1026d34ba75f02a2d3fcbf" \
-  --expect "GOLDEN OK 1952 98e4b10cd5f8ccef9cac5b942b6e374a28a073bd1fe67ce5362d350a40b2b8be" \
+  --expect "GOLDEN OK 1950 f97e9f81d1feaee78c55847e1fc42f8e60bd9f12c84d234f0d10002f9dae48f2" \
+  --expect "GOLDEN OK 1952 75d382995d0f12f0eed772dd851906831990b0ab830c10f3a0af310da0547f31" \
   --expect "SMOKE OK 5 turns 1948-10-15 85191d48688be4595726b17778ecdda0175eff8f6f0fa1d976dbe3b48b42823b"
 ```
 
@@ -214,10 +214,10 @@ The hash reads the state keys, so it never sees a record outside its window. An 
 | GDD Phase 1 PR 3 | mvp-slice | `f6931e24` | the slice gains its city (placeholder values) and the GDD turn: Money from jobs, housing, Social cohesion and arrivals, with the reference player filling the jobs (was `0451920a`); the legacy goldens do not move |
 | GDD Phase 1 PR 4 | mvp-slice | `6343eee8` | training runs in the slice (step 4 of the GDD turn) and the reference player trains one halutz group on the first turn: it becomes a unit at Tel Aviv's hex on the fourth, its IL 0.5m adds to the debt, and the civilian it took frees a place that one more refugee is housed in (was `f6931e24`); the legacy goldens and `scenario-mvp-absorb-first` do not move |
 | GDD Phase 1 PR 5 | mvp-slice | `ec6f8c80` | owner decision "Allow borrowing" (15 October 2026): training and pioneer work borrow what the Treasury lacks. The reference player's halutz group, ready on 15 September 1948, starts Mefalsim that turn (its IL 2m adds to the debt) and builds it on 15 March 1949; `MvpGolden.Until` moves from 15 January to 15 March 1949 (ten monthly turns) so the build finishes inside the run (was `6343eee8`); the legacy goldens and `scenario-mvp-absorb-first` do not move |
-| GDD Phase 2 PR 1 | 1950 | `5220f1ce` | GDD v0.1: monthly turns and the GDD loop on (spec 2026-10-12 section 3 step 5). The real content runs `systems.loop: gdd` with monthly turns on every rung, and the golden runs play the reference player, so the run ends 1950-01-15 after 20 turns (was 1950-02-27, turn 35) and gains the GDD sections (`city{}`, `coh=`, `units[]`, `next=`: the halutz group trained from 15 August 1948). Event windows re-timed per #567 (idf_founding, altalena, jerusalem_military_government, latrun_proposal, operation_horev, elections_1949; the five PR 1a cards land with #577 and re-pin then); the Phase 1 values now in content as design values, unchanged; the FRUS anchor holds with no refit; `mvp-slice` retired; #315 merged earlier (#475) and moved no golden (was `71e9904d`) |
-| GDD Phase 2 PR 1 | 1952 | `98e4b10c` | same; the game now ends on 15 January 1952 (R-LOOP-004), the first turn on or after 1 January 1952: ends 1952-01-15, turn 44, `over=mvp_ended` (was 1952-02-27, turn 43, still playing) |
-| GDD Phase 2 PR 1 | mvp-end | `98e4b10c` | new: the reference player over the whole game, to 15 January 1952; the same run as hash1952 |
+| GDD Phase 2 PR 1 | 1950 | `f97e9f81` | GDD v0.1: monthly turns and the GDD loop on (spec 2026-10-12 section 3 step 5). The real content runs `systems.loop: gdd` with monthly turns on every rung, and the golden runs play the reference player, so the run ends 1950-01-15 after 20 turns (was 1950-02-27, turn 35) and gains the GDD sections (`city{}`, `coh=`, `units[]`, `next=`: the halutz group trained from 15 August 1948; `site{mefalsim=done,1949-06-15}`: the build of #566, with its IL 2m in the debt). Event windows re-timed per #567 (idf_founding, altalena, jerusalem_military_government, latrun_proposal, operation_horev, elections_1949), and PR 1a (#577) merged in: the five war cards rewritten (options `keep` and `stop_at_ceasefire`) and the sensitive options' gains replaced by costs (morale and International Support lower); the Phase 1 and #566 values in content as design values, unchanged; the FRUS anchor holds with no refit; `mvp-slice` (`ec6f8c80`) retired; #315 merged earlier (#475) and moved no golden (was `71e9904d`) |
+| GDD Phase 2 PR 1 | 1952 | `75d38299` | same; the game now ends on 15 January 1952 (R-LOOP-004), the first turn on or after 1 January 1952: ends 1952-01-15, turn 44, `over=mvp_ended` (was 1952-02-27, turn 43, still playing); the reparations claim's cost moves to Money (`treasury` -1, #577), so the debt is IL 1m higher (was `62f8ec61`) |
+| GDD Phase 2 PR 1 | mvp-end | `75d38299` | new: the reference player over the whole game, to 15 January 1952; the same run as hash1952 |
 | GDD Phase 2 PR 1 | smoke5 | `85191d48` | five monthly turns end on 1948-10-15 (was 1948-06-19); the smoke answers cards while the turn's Attention pays for them, so the third card of 15 July 1948 goes to its minister (was `d3fdd459`) |
-| GDD Phase 2 PR 1 | scenario-cautious | `c603947a` | monthly turns: ends 1949-01-15, turn 8 (was 1949-01-02, turn 23); rhodes_talks and elections_1949 now fire inside the run; the GDD sections appear (was `1d5b8d71`) |
-| GDD Phase 2 PR 1 | scenario-reckless | `eb1d3714` | same (was `c0bd12bc`) |
-| GDD Phase 2 PR 1 | scenario-mvp-absorb-first | `c1c996d7` | plays the real content (the overlay is retired, `content: mvp` dropped); the Horev window edit makes rhodes_talks and sinai_withdrawal fire (was `59ea3181`) |
+| GDD Phase 2 PR 1 | scenario-cautious | `58eb01db` | monthly turns: ends 1949-01-15, turn 8 (was 1949-01-02, turn 23); rhodes_talks and elections_1949 now fire inside the run; the GDD sections appear; #577's rewritten cards and costs (was `1d5b8d71`) |
+| GDD Phase 2 PR 1 | scenario-reckless | `e2f409a5` | same (was `c0bd12bc`) |
+| GDD Phase 2 PR 1 | scenario-mvp-absorb-first | `f8858f6e` | plays the real content (the overlay is retired, `content: mvp` dropped); the Horev window edit makes rhodes_talks and sinai_withdrawal fire; #577's rewritten cards and costs (was `59ea3181`) |

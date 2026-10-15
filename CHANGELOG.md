@@ -334,8 +334,8 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
     months: 6, and 2 at full war (Q-CUT-8, R-TURN-003).
   - Old saves are refused, said once in English or Hebrew: a save from before the cutover as made under earlier rules
     (R-SAVE-001), and one from an unknown ruleset as made by a newer version (R-SAVE-002).
-  - The golden runs play the reference player, and every golden moves once: `hash1950` `5220f1ce`, `hash1952` and the new
-    `mvp-end` `98e4b10c`, `smoke5` `85191d48` (five turns end 15 October 1948), and the three scenarios
+  - The golden runs play the reference player, and every golden moves once: `hash1950` `f97e9f81`, `hash1952` and the new
+    `mvp-end` `75d38299`, `smoke5` `85191d48` (five turns end 15 October 1948), and the three scenarios
     (docs/determinism.md). The browser smoke answers cards while the turn's Attention lasts. The Defence screen shows
     monthly turns on every level. The arrivals line reads "wait for homes".
 - The map's region files (the 1948 sub-districts, the 1949 armistice lines, the 1948-49 control areas) are read
