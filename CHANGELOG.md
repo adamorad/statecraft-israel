@@ -358,9 +358,9 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
     `mvp-end` `75d38299`, `smoke5` `85191d48` (five turns end 15 October 1948), and the three scenarios
     (docs/determinism.md). The browser smoke answers cards while the turn's Attention lasts. The Defence screen shows
     monthly turns on every level. The arrivals line reads "wait for homes".
-  - Every new game now opens on a card (One Army, 15 May 1948), so a card under the start screen no longer asks for the
-    event photo catalog: it takes its photograph when the screen closes, and `GameRoot.Begin` stays free of that load
-    (refs #592, #321). Without a start screen (the automated runs) the visible card loads it at once.
+  - Every new game now opens on a card (One Army, 15 May 1948), so #620's wait under the start screen covers a new game
+    too, and `GameRoot.Shutdown` disposes the card first, so New Game does not load the event photo catalog for the
+    game it closes (refs #592, #321). Without a start screen (the automated runs) the visible card loads it at once.
 - The map's region files (the 1948 sub-districts, the 1949 armistice lines, the 1948-49 control areas) are read
   from baked runtime forms at boot instead of being parsed as YAML (`tools/regions_bake.py`, refs #321), as the
   localities and the route paths are. The sub-districts are read once, for the camps and the region layers. A stale,
@@ -380,9 +380,12 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
 - For a new game, the event photo catalog (`EventImageCatalog`, with its 24 crunched photographs) loads in the background
   a second after the game starts, while the start screen is up, instead of in `GameRoot.Begin` (refs #321). The "screens
   wired" step is about 80 ms shorter at `--cpu 4`. The first event card shows its photograph as before, in a frame no
-  longer than with the old load; a card that comes before the load ends waits for it. A Continue whose turn has a
-  decision waiting still loads the catalog in `Begin`, as before (#592). `?bootlog` logs when the card first gets the
-  catalog. Presentation only.
+  longer than with the old load; a card that comes before the load ends waits for it. `?bootlog` logs when the card
+  first gets the catalog. Presentation only.
+- A Continue whose turn has a decision waiting no longer loads the event photo catalog in `GameRoot.Begin` either
+  (refs #592, #321): the card is built under the start screen and asks for its photograph only when the screen closes,
+  by when the background load has usually finished. "Screens wired" is about 90 ms shorter on such a Continue at
+  `--cpu 4`. The card still opens with its photograph, never the minister's portrait first. Presentation only.
 - The units file (`units_1948.yaml`) is parsed once at boot instead of twice: the map keeps its parse and the units
   layer draws from the same list (refs #321). The units and where they stand are unchanged. The second parse cost about
   25 ms at `--cpu 4` between the map and the start screen; the map build itself is unchanged. `?bootlog` has three more
@@ -539,6 +542,12 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   It decodes to the same bytes, so the terrain is unchanged (#44).
 
 ### Fixed
+- UI text from Jeremy Hoover's review (refs #622): a refused order no longer shows a content id or an exception's
+  message after "Not done:" ("Unknown policy", "The turn could not run", in English and Hebrew); both stay in the log.
+  The six Title Case labels are in sentence case ("Public support", "International standing", "Foreign currency", "End
+  turn", "New game"), and the lines that name the two buttons follow them. Hebrew acronyms in content use the gershayim
+  character the strings use (״, U+05F4: מפא״י, רמטכ״ל, שז״ר). The strings.en.yaml header now says which strings format a
+  date. The content hash moves; no golden does.
 - Content: 101 Squadron's aircraft notes in `content/map/units_1948.yaml` (refs #607). The Avia S-199 note now gives the
   sourced arrivals (one on 20 May 1948, one each on 21 and 22 May, the fourth lost in a C-46 crash dated 23 or 23-24 May,
   sources disagree) instead of "the first four arrived on 20 May"; the Spitfire note names the two sources for the
