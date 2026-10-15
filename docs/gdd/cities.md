@@ -49,8 +49,10 @@ As a player of the MVP, I want the twelve Jewish cities and towns to start at th
 - [S6] JTA, "Israel Marks 'Ingathering of Exiles Day'; Arrival of Second Million Jews Anticipated", 20 December 1949, https://www.jta.org/archive/israel-marks-ingathering-of-exiles-day-arrival-of-second-million-jews-anticipated, checked 2026-10-15
 - [S7] The owner's decisions recorded on #375, 15 October 2026, https://github.com/eyalgolan/statecraft-israel/issues/375#issuecomment-6183538544, checked 2026-10-15
 - [S8] CBS Statistical Abstract of Israel No. 3 (1952), the settlements list, pp. 133 and 144, https://www.cbs.gov.il/he/publications/DocLib/shnaton_saruk/shnaton1952_num3.pdf, checked 2026-10-15
+- [S9] Rosh Pinna local council, "The history of Rosh Pinna", http://www.rosh-pina.co.il/%D7%94%D7%99%D7%A1%D7%98%D7%95%D7%A8%D7%99%D7%94, checked 2026-10-15
+- [S10] Village Statistics, April 1945 (Government of Palestine), Safad Sub-District, serial 66, p. 10, https://users.cecs.anu.edu.au/~bdm/yabber/census/VillageStatistics1945orig.pdf, checked 2026-10-15
 
 ## Open questions
 
 - The Hebrew words for the new UI terms (Q-UI-2): an owner pick, not a number row, so it stays with the owner. The number rows carry proposed labelled design values in the rules above, per the owner's "Agents propose design values" of 15 October 2026 [S7].
-- Zikhron Ya'akov is sourced: 1,935 on 8 November 1948 (CBS Statistical Abstract No. 3, the settlements list, p. 133 [S8]). Rosh Pinna stays on the accepted Hebrew Wikipedia figure, about three hundred and fifty in May 1948: the same list enters it with no population (p. 144 [S8]); a stronger source is tracked in the research epic.
+- Zikhron Ya'akov is sourced: 1,935 on 8 November 1948 (CBS Statistical Abstract No. 3, the settlements list, p. 133 [S8]). Rosh Pinna keeps the accepted Hebrew Wikipedia figure, about three hundred and fifty in May 1948, corroborated by the town council's own history: about one hundred and fifty absorbed during the war, reaching five hundred [S9]. The CBS list enters Rosh Pinna with no population (p. 144 [S8]), and the Village Statistics 1945 count of eight hundred and forty at the end of 1944 is logged as a conflict in the research epic [S10].
