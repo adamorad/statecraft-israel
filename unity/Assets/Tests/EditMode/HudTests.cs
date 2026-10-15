@@ -35,22 +35,24 @@ public class HudTests
 
     // ---- The score (#380): only in the GDD loop, from GameState.Score ----
 
-    static readonly Content Slice = MvpSlice.Load(Paths.Content);
-    static SimBridge SliceBridge() => new SimBridge(GameSession.New(Slice, GoldenRun.Seed, Mode.Historical), Text);
+    /// <summary>The real game: the GDD loop since the cutover (the ?mvp=1 slice is gone with MvpSlice).</summary>
+    static SimBridge GddBridge() => new SimBridge(GameSession.New(C, GoldenRun.Seed, Mode.Historical), Text);
 
     [Test]
     public void TheLegacyLoopShowsNoScore()
     {
-        Assert.AreEqual("", HudModel.From(NewBridge(), Text).Score);
+        // The legacy loop survives only as content without the loop switch (SimBridgeGddTests.Legacy) since the cutover.
+        SimBridge LegacyBridge() => new SimBridge(GameSession.New(SimBridgeGddTests.Legacy, GoldenRun.Seed, Mode.Historical), Text);
+        Assert.AreEqual("", HudModel.From(LegacyBridge(), Text).Score);
         using var ui = new UiTestKit();
-        using var hud = new HudPresenter(ui.Root, NewBridge(), Text);
+        using var hud = new HudPresenter(ui.Root, LegacyBridge(), Text);
         Assert.AreEqual(DisplayStyle.None, ui.Q<Label>("score").style.display.value);
     }
 
     [Test]
-    public void TheSliceShowsItsScore()
+    public void TheGddGameShowsItsScore()
     {
-        var bridge = SliceBridge();
+        var bridge = GddBridge();
         Assert.AreEqual("Score 0", HudModel.From(bridge, Text).Score);
         bridge.State.Score = 150;
         Assert.AreEqual("Score 150", HudModel.From(bridge, Text).Score);
@@ -61,10 +63,10 @@ public class HudTests
     }
 
     [Test]
-    public void TheBarShowsTheSlicesScore()
+    public void TheBarShowsTheGddGamesScore()
     {
         using var ui = new UiTestKit();
-        var bridge = SliceBridge();
+        var bridge = GddBridge();
         using var hud = new HudPresenter(ui.Root, bridge, Text);
         var label = ui.Q<Label>("score");
         Assert.AreEqual("Score 0", label.text);

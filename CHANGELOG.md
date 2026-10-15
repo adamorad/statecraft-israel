@@ -347,7 +347,7 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   - The Phase 1 balance numbers move into `content/` unchanged as labelled design values (owner, Q-CUT-1): new
     `content/cities.yaml` and `content/unit_types.yaml`, the rules' `mvp:` block and the GDD orders' Attention costs, each
     tagged `# DESIGN VALUE` and listed by `DesignValuesTests` (R-LOOP-005). `attention_per_turn` stays 4 (Q-CUT-5); inertia
-    and the soft-event cap stay per turn (Q-CUT-6). The overlay `MvpSlice` and the `mvp-slice` golden are retired.
+    and the soft-event cap stay per turn (Q-CUT-6). The overlay `MvpSlice`, its `?mvp=1` dev flag (#598) and the `mvp-slice` golden are retired: the real game is the GDD game, and a game started under it autosaves and has New Game again.
   - Event windows re-timed for monthly turns (#567): `idf_founding`, `altalena` (15 June 1948, sourced; Q-CUT-7),
     `jerusalem_military_government`, `latrun_proposal`, `operation_horev` and `elections_1949` open on the 15th on or
     before their decision (R-TURN-002), so `sinai_withdrawal` and `rhodes_talks` fire again. The gap rule is restated in

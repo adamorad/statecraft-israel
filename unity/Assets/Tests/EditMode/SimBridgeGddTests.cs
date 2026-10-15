@@ -14,7 +14,7 @@ public class SimBridgeGddTests
 {
     static readonly Content Slice = ContentLoader.Load(Paths.Content);
     /// <summary>The legacy loop: the real content without eras.yaml's loop switch (the real game runs gdd since the cutover).</summary>
-    static readonly Content Legacy = LoadLegacy();
+    internal static readonly Content Legacy = LoadLegacy();
 
     static Content LoadLegacy()
     {
