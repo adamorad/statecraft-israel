@@ -158,7 +158,12 @@ public class GameSceneTests
             var pointer = Object.FindFirstObjectByType<MapPointer>();
             var camera = Camera.main.GetComponent<CameraController>();
             var bridge = root.Bridge!;
-            Assert.IsFalse(ui.Q("root").ClassListContains(EventCardPresenter.ModalClass), "precondition: no card at the start");
+            // Since the GDD cutover the game opens on a card (One Army, 15 May 1948): take it away for the "no card" half.
+            var none = GameSession.New(Inputs.Content, GoldenRun.Seed, Mode.Historical);
+            none.State.PendingEvents.Clear();
+            bridge.Replace(none);
+            for (int i = 0; i < 5; i++) yield return null;
+            Assert.IsFalse(ui.Q("root").ClassListContains(EventCardPresenter.ModalClass), "precondition: no card");
             foreach (var (where, p) in probes)
             {
                 Assert.IsFalse(pointer.IsOverUi!(ScreenFor(p)), $"no card: {where} {p} is map");
