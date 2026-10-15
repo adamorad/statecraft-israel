@@ -173,11 +173,12 @@ namespace Statecraft.Game.UI
             var text = Strings();
             var store = Store ?? SaveStore.ForPlatform();
             var notes = new List<string>();
-            // A smoke run is reproducible: a fresh game with the golden seed, never the player's autosave.
+            // A smoke run is reproducible: a fresh game with the golden seed, never the player's autosave. A slice game (?mvp=1,
+            // #380) is fresh too: the autosave was made with other rules, so it is neither read nor set aside.
             bool resumed;
             var session = smoke > 0
                 ? GameStart.Begin(inputs.Content, store, () => GoldenRun.Seed, notes, text, out resumed, fresh: true)
-                : GameStart.Begin(inputs.Content, store, GameStart.NewSeed, notes, text, out resumed);
+                : GameStart.Begin(inputs.Content, store, GameStart.NewSeed, notes, text, out resumed, fresh: inputs.Slice);
             DiagLog.BootPhase($"session started (turn {session.State.Turn}, replayed)");
             var bridge = Bridge = new SimBridge(session, text);
             var root = document.rootVisualElement;
@@ -231,10 +232,11 @@ namespace Statecraft.Game.UI
             {
                 regions.Apply(bridge.State.Date);
                 layerLabel.text = regions.ControlLabel(bridge.State.Date, k => text[k])
-                    ?? regions.Label(bridge.State.Date, text["map.layer_with_armistice"], text["map.layer_front_no_data"],
-                    text["map.layer_front_low"], text["map.layer_front_note"]);
-                layerLabel.style.display = regions.Shown ? DisplayStyle.Flex : DisplayStyle.None;
+                    ?? regions.Label(bridge.State.Date, text.Format);
+                ShowLayerLabel();
             };
+            // The caption names the borders while they are drawn: by date, and not while the minimap's button hides them.
+            void ShowLayerLabel() => layerLabel.style.display = regions.Shown && minimap?.BordersShown != false ? DisplayStyle.Flex : DisplayStyle.None;
             onDate();
             bridge.Changed += onDate;
             owned.Add(new Undo(() => bridge.Changed -= onDate));
@@ -262,14 +264,18 @@ namespace Statecraft.Game.UI
             var info = Own(new InfoPanelPresenter(root, bridge, text, names, nav: nav,
                 selectedUnit: () => unitLayer.Selected is string id ? unitLayer.Tokens.First(p => p.Token.Unit.Id == id) : (Statecraft.Game.Map.Units.PlacedToken?)null,
                 regions: regions, localitiesAt: localitiesAt));
-            // A smoke session never touches the player's save: no autosave, and no New Game (which deletes the autosave).
-            // Leaving New Game out is safer than handing it a throwaway store: no file is ever deleted, no path has to be
-            // right on every platform, and the scripted run never presses it.
+            // A smoke or slice session never touches the player's save: no autosave, and no New Game (which deletes the autosave).
+            // A smoke run gets no New Game at all: no file is ever deleted, no path has to be right on every platform, and the
+            // scripted run never presses it. A slice game (?mvp=1) hides the button and takes it out of the Tab order, and its
+            // presenter refuses every press (slice: true), so even a press that reaches it deletes nothing.
             NewGamePresenter? newGame = null;
+            var newGameButton = root.Q<Button>("new-game");
+            newGameButton.style.display = inputs.Slice ? DisplayStyle.None : StyleKeyword.Null;
+            newGameButton.focusable = !inputs.Slice;
             if (smoke == 0)
             {
-                newGame = Own(new NewGamePresenter(root, bridge, store, toast, text, GameStart.NewSeed));
-                Own(GameStart.Autosave(bridge, store, text, toast.Append));   // appends: the turn's refusals stay visible
+                newGame = Own(new NewGamePresenter(root, bridge, store, toast, text, GameStart.NewSeed, slice: inputs.Slice));
+                if (!inputs.Slice) Own(GameStart.Autosave(bridge, store, text, toast.Append));   // appends: the turn's refusals stay visible
             }
 
             // An outcome clip holds the pointer while it shows and in the frame it closes (the skipping click selects no hex).
@@ -288,11 +294,19 @@ namespace Statecraft.Game.UI
             pointer.HexClicked += onHex;
             var camRig = rig = cameraController.GetComponent<CameraRig>();
             Own(new TopBarInset(root, camRig));                            // the map is framed below the top bar
-            var mini = minimap = Own(new MinimapPresenter(root, map.Hexes));
+            var mini = minimap = Own(new MinimapPresenter(root, map.Hexes, text));
             labels = Own(new MapLabelsPresenter(root, map, cameraController.GetComponent<Camera>(), null,
                 p => MapLabelsPresenter.TipOf(p, n => text.Format("map.today", n), text["map.mixed"], hebrew),
                 () => unitLayer != null ? unitLayer.KeepClear : null));   // the names keep clear of the unit tokens (issue #197)
             mini.Clicked += (lon, lat) => { camRig.LookAt = map.Frame.ToWorld(lon, lat, 0); cameraController.Settle(); SyncMinimap(); labels?.Refresh(); };   // the click may come after LateUpdate (review M6)
+            // The minimap's whole-map button: the camera's own farthest zoom, over the middle of the map (no new rule).
+            mini.Overview += () =>
+            {
+                var (lon, lat) = mini.Centre;
+                camRig.LookAt = map.Frame.ToWorld(lon, lat, 0); camRig.Distance = CameraController.MaxDistance;
+                cameraController.Settle(); SyncMinimap(); labels?.Refresh();
+            };
+            mini.BordersChanged += ShowLayerLabel;
             Action onChanged = RenderPlacementsIfChanged;
             bridge.Changed += onChanged;
             // One console line per turn, so a browser run (reload, Continue) can be checked against the hash.
@@ -317,7 +331,7 @@ namespace Statecraft.Game.UI
             SyncMinimap();
             // The start screen goes up in the same frame the loading state ends, so the HUD never flashes before it. While it
             // shows, the camera keys are off (keyboard pan would otherwise move the hidden map; plan amendment A4).
-            if (startScreen && newGame != null)
+            if (startScreen && newGame != null && !inputs.Slice)   // no start screen in a slice game: its New Game would be dead
             {
                 var cam = cameraController;
                 var recording = Own(new DeclarationRecording(root, text, toast.Show));   // never built in automated runs (Skipped)

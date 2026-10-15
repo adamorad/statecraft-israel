@@ -21,9 +21,29 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   (Q-CUT-8). Every golden moves; the cutover re-pins them once.
 
 ### Added
+- Hebrew names wait for a person (refs #582, #564; owner, 15 October 2026): every Hebrew name #582 added, which only an
+  AI agent checked against its sources, now carries `*_review: agent-checked` (`title_he_review`, `title_he_f_review`,
+  `name_he_review`, `body_he_review`; 100 flags: offices, parties, governments, legislatures, the game settlements and
+  five 1948 localities). A native speaker's review in #564 removes the flag. The loader and the map's readers accept
+  only `agent-checked`, and only beside a name. CONTENT_POLICY section 2, rule 6, says so. The content hash moves; no
+  golden does.
 - GDD v0.1 Phase 1, the Unity queue takes the GDD orders (refs #380): `AssignWorkers`, `Train` and `CancelTraining`
   now queue in the slice, one per city, per city and track, and per cohort; an unknown city, training track or cohort is
   refused before End Turn. A reflection test fails for any command type that reaches the queue's default branch.
+- GDD v0.1 Phase 1, a dev flag and the score (refs #380): `?mvp=1` in the WebGL page's URL loads the content through
+  `MvpSlice.Overlay` (the GDD slice) for playtests. The golden check and the smoke run ignore it, and a slice game never
+  reads, sets aside or writes the player's autosave (and has no New Game). In the GDD loop the top bar shows the score.
+- The left icon column (HUD round 2, part 2, refs #398): the four screens' buttons (Cabinet, Budget, Defence, Why?) move
+  from the top bar to promo 03's column of round icons at the left edge, icon-only, each named in a tip beside it on hover
+  and on keyboard focus. No new action. Tab still runs Cabinet, Budget, Defence, Why?, New Game, End Turn; the column stays
+  usable under the decision card, as the top bar does, and the card's backdrop, the screens and the toast start right of it.
+  Budget's button draws promo 03's ledger (owner, 2026-10-15), a new `UiIcon` glyph drawn in code.
+- The minimap as promo 03's (HUD round 2, part 1, refs #398): a painted relief of the country, baked once from the map's
+  own heightmap, ground colours, land use and coast (`tools/minimap_bake.py`, `Resources/Map/MinimapRelief.png`, checked
+  fresh in CI) in place of the 128-pixel hex strip painted at boot, and beside it promo 03's three round buttons: zoom all
+  the way out, show or hide the settlement names, show or hide the region borders (and their caption), icon-only, each named in a tip beside it on hover and on keyboard
+  focus (`HoverTip`; UI Toolkit draws `tooltip` only in Editor UI). The picture stays
+  mouse-only (accessibility audit B1d); the buttons take Tab after End Turn. Presentation only: no golden moves.
 - Sourced Hebrew names in content (refs #558, #193), data only (no screen shows them yet): `title_he` for 30 of 31
   offices, plus `title_he_f` where a woman held the office (Labour, Foreign Affairs), `name_he` for 25 of 26 parties,
   the 8 governments and the 25 game settlements, `body_he` for the 4 legislatures, each with its own `*_he_sources`
@@ -524,6 +544,9 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   sources disagree) instead of "the first four arrived on 20 May"; the Spitfire note names the two sources for the
   27 September 1948 landing of three aircraft at Ramat David. Sources added, checked 15 October 2026. Notes only: no
   date changes, map-only file outside the content hash, no golden moves.
+- Hebrew UI preview (refs #596, #585): the map layer label (`MapRegions.Label`) formats through `UiText.Format`, so the
+  values its Hebrew patterns insert (a front's English name, the "1950 modus vivendi" note) get the same left-to-right
+  marks as the rest of the Hebrew UI and keep their own order. English is unchanged.
 - Hebrew UI preview (refs #543, #193): a value inserted into a Hebrew line keeps its own order. `UiText.Format` puts a
   left-to-right mark (U+200E) on each side of each value with no Hebrew in it that it inserts into a Hebrew template, so
   negative foreign currency reads "-$4.2m" (not "$4.2m-") and "15 May 1948" in the Why screen's turn line stays one
