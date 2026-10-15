@@ -487,8 +487,10 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
 ### Fixed
 - Map labels (refs #599): close over Jaffa's harbour the "Tel Aviv" and "Jaffa" pills no longer read swapped. Every pill
   is now nearer its own settlement's marker than any other visible marker (by more than 4 px), in every placing pass,
-  since two sprawling kits' screen rectangles overlap and a spot against one's edge could sit by the other town. When
-  every spot round a sprawl fails, a pill may also hang just under its marker point, so Tel Aviv keeps its name.
+  since two sprawling kits' screen rectangles overlap and a spot against one's edge could sit by the other town. A city
+  keeps its name: when every spot round its sprawl fails it may hang just under its marker point, its last pass ignores
+  the 1948 localities' markers (Silwan is 1.5 km from Jerusalem), and a kit reaching behind the camera at the closest
+  zoom places its pill round the marker box instead of hiding it.
 - Content: 101 Squadron's aircraft notes in `content/map/units_1948.yaml` (refs #607). The Avia S-199 note now gives the
   sourced arrivals (one on 20 May 1948, one each on 21 and 22 May, the fourth lost in a C-46 crash dated 23 or 23-24 May,
   sources disagree) instead of "the first four arrived on 20 May"; the Spitfire note names the two sources for the
