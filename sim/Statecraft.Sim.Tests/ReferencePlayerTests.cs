@@ -37,6 +37,30 @@ public class ReferencePlayerTests
         Assert.Empty(Simulation.Step(Mvp, s, orders).Rejected);
     }
 
+    /// <summary>The real start: the 15 May card (idf_founding) is answered first, at full war's price, and the jobs are
+    /// filled; the halutz group no longer fits that turn's 4 Attention (Q-CUT-5 keeps 4), so the player trains on the first
+    /// later turn that has the Attention (the turn from 15 August 1948 in the golden run), and every order it sends is taken.</summary>
+    [Fact]
+    public void OnTheRealStartItAnswersTheCardFirstAndTrainsWhenAttentionAllows()
+    {
+        var s = Simulation.NewGame(Mvp, GoldenRun.Seed, Mode.Historical);
+        Assert.Contains("idf_founding", s.PendingEvents);
+        var first = ReferencePlayer.Commands(Mvp, s);
+        Assert.IsType<ChooseEventOption>(first[0]);
+        Assert.Contains(first, x => x is AssignWorkers);
+        Assert.DoesNotContain(first, x => x is Train);
+        DateTime? trained = null;
+        while (trained == null && s.GameOver == null)
+        {
+            var orders = ReferencePlayer.Commands(Mvp, s);
+            var r = Simulation.Step(Mvp, s, orders);
+            Assert.Empty(r.Rejected);
+            if (orders.Any(x => x is Train)) trained = s.Date;
+            s = r.State;
+        }
+        Assert.Equal(new DateTime(1948, 8, 15), trained);
+    }
+
     // R-TRAIN-001: the stated policy trains a halutz group only when there is none, none in training, a civilian without
     // work, and the Attention to pay. Training borrows, so Money does not hold it back (owner decision, 2026-10-15).
     [Fact]

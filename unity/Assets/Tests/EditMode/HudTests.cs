@@ -42,12 +42,12 @@ public class HudTests
         ui.Press("end-turn");
         Assert.AreEqual(1, bridge.State.Turn);
         Assert.AreEqual("Turn 1", ui.Q<Label>("turn").text);
-        Assert.AreEqual("22 May 1948", ui.Q<Label>("date").text);
+        Assert.AreEqual("15 June 1948", ui.Q<Label>("date").text);   // monthly turns since the GDD cutover
         var arrivals = bridge.Session.Last!.Why.Where(w => w.System == "population").Sum(w => w.Delta);
         Assert.AreEqual(arrivals.ToString("N0", System.Globalization.CultureInfo.InvariantCulture), ui.Q<Label>("immigration-value").text);
         var s0 = bridge.Session.Previous!; var s1 = bridge.State;
         var d = System.Math.Round((s1.Treasury - s1.Debt) - (s0.Treasury - s0.Debt), 1, System.MidpointRounding.AwayFromZero);
-        Assert.AreNotEqual(0.0, d, "the test needs a week with a treasury change");
+        Assert.AreNotEqual(0.0, d, "the test needs a turn with a treasury change");
         Assert.AreEqual(PlayerText.MoneyChange(C, "treasury", d), ui.Q<Label>("treasury-delta").text);
         Assert.AreEqual(d < 0, ui.Q<Label>("treasury-delta").ClassListContains("delta-down"));
         Assert.AreEqual(d > 0, ui.Q<Label>("treasury-delta").ClassListContains("delta-up"));

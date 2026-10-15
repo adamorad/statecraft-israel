@@ -64,7 +64,7 @@ public class SaveUiTests
         var notes = new List<string>();
         var session = GameStart.Begin(C, store, () => 5UL, notes, Text);
         Assert.AreEqual(0, session.State.Turn);
-        StringAssert.StartsWith("Your saved game could not be loaded (line 1: save schema version 9 is newer", notes[0]);
+        Assert.AreEqual(Text["save.refused." + SaveException.NewerVersion], notes[0]);   // a newer schema: R-SAVE-002 (N2)
         Assert.IsFalse(File.Exists(store.AutosavePath));
         Assert.IsTrue(File.Exists(Path.Combine(store.Directory, "autosave.bad.txt")));
     }

@@ -144,6 +144,8 @@ public class GameSceneTests
 
             foreach (var s in ScreenNav.Screens)
                 Assert.AreEqual(DisplayStyle.None, ui.Q("screen-" + s).resolvedStyle.display, s + " is hidden at start");
+            HideTheOpeningCard(ui);
+            yield return null;
             var panel = ui.panel;
             Assert.IsNull(panel.Pick(ui.worldBound.center), "the middle of the screen is map, not UI");
 
@@ -236,6 +238,7 @@ public class GameSceneTests
     public void AClickOnTheTerrainFillsTheInfoPanel()
     {
         Boot();
+        HideTheOpeningCard(Ui);
         var pointer = Object.FindFirstObjectByType<MapPointer>();
         Assert.IsTrue(pointer.HandleClick(AimAtTelAviv()), "the ray hit the terrain");
         Assert.AreEqual("Tel Aviv", Ui.Q<Label>("info-title").text);
@@ -250,6 +253,16 @@ public class GameSceneTests
         var b = sel.GetComponent<MeshFilter>().sharedMesh.bounds;
         Assert.AreEqual(ground.x, b.center.x, 100f, "the outline is on the clicked hex");
         Assert.AreEqual(ground.z, b.center.z, 100f);
+    }
+
+    /// <summary>Since the GDD cutover the game opens on its first card, One Army (idf_founding, window from 15 May 1948 per
+    /// #567: the order it asks about was signed on 26 May, before the next monthly turn), and its photograph covers the map. A
+    /// player hides it to use the map; so do these tests.</summary>
+    public static void HideTheOpeningCard(VisualElement ui)
+    {
+        var hide = ui.Q<Button>("event-hide");
+        Assert.IsNotNull(hide, "the opening card has its Hide button");
+        UiTestKit.Press(hide);
     }
 
     /// <summary>Points the main camera straight down at Tel Aviv and returns Tel Aviv's screen position.</summary>

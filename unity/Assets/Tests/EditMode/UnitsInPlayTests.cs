@@ -217,7 +217,7 @@ public class UnitsInPlayTests
             var tokens = UnitRoster.Build(units, C, s);
             Assert.AreEqual(before, s.Hash(), $"turn {turn}: building the roster changed the state");
             digests.Add($"{s.Date:yyyy-MM-dd} {string.Join(",", tokens)}");
-            s = Simulation.Step(C, s, HistoricalAI.Commands(C, s)).State;
+            s = Simulation.Step(C, s, GoldenRun.Orders(C, s)).State;   // the golden runs' orders (the reference player since the cutover)
         }
         Assert.AreEqual(GoldenRun.Hash1950, s.Hash(), "the golden does not move");
         // The presentation golden: the roster of every turn of the historical playthrough, pinned. A deliberate change to
