@@ -306,7 +306,7 @@ Cost `median(all) - median(-tiltshift)`, all within the 1.5 ms budget and within
 | first build: headed | +0.01 ms | +0.07 ms |
 
 ## Task 4: grade
-`MapGrade` adds the following to the rig's runtime `VolumeProfile`, all behind the `grade` toggle, with LDR grading on both tiers:
+`MapGrade` adds the following to the rig's runtime `VolumeProfile`, all behind the `grade` toggle, with LDR grading on both tiers (values as of Task 4; issue #38 retuned them, see "Issue #38: grade retune"):
 - a Neutral tonemapper;
 - post exposure +0.15, contrast 14, saturation 16 (superseded at the Merge point: `MapGrade.Saturation` is 0, see "Merge point");
 - white balance temperature **5** (the plan says 9; see the merge arithmetic below) and tint 2;
@@ -1343,16 +1343,18 @@ Review round 1 (staff review I1-I2, M1-M8) is folded in; the values below are th
   budget (0.89 / 0.13 ms in promo-sea round 1); p95 with everything on is 10 / 14 ms, under 16.7 ms.
 - **Surf** (review I2).
   - A swash line, full to `ScSwashM` 180 m and gone by 324 m.
-  - Breakers through a `ScSurfM` 900 m zone. They are a squared triangle wave in the distance from the shore, spacing
-    `ScBreakerSpacingM` 300 m, rolling shoreward at `ScBreakerRate` 0.05 cycles/s (15 m/s, a quarter pixel a frame at
-    gameplay03 and 60 fps).
+  - Breakers through a `ScSurfM` zone (900 m here; 1.8 km since sea round 3). They are a squared triangle wave in the
+    distance from the shore, spacing `ScBreakerSpacingM` (300 m here; 450 m since sea round 3), rolling shoreward at
+    `ScBreakerRate` 0.05 cycles/s (15 m/s here, a quarter pixel a frame at gameplay03 and 60 fps; 22.5 m/s, about half a
+    pixel, since sea round 3).
   - The breakers are box-filtered in closed form (`ScTriSqBox`), so they never alias and tend to their mean (1/3) as the
     pixel grows. The previous `pow(tri, 5)` crest was about 21 m wide on 45 m pixels: hairline, dashed crests.
   - The box is `fwidth(phase)` x `ScBreakerFilterPx` 1.25, with the phase taken by `ScBreakers` outside the water branch
     in both callers (re-review N2). The phase's true gradient is not 1 / 300 m: its noise term adds up to 0.0025
     cycles/m and the 8-bit coast's slope varies up to 2x, so a width from the nominal spacing was up to 2x too narrow in
     places.
-  - The 300 m break-up noise fades to its mean between 75 and 150 m pixels.
+  - The 300 m break-up noise fades to its mean between 75 and 150 m pixels. Since sea round 3, the `foam` toggle swaps
+    it for a 200 m lace net at the gameplay zoom (below).
 - **Beach** (`ScShore`).
   - A sand strip along every sea-level coast (above -100 m): the Mediterranean and the Gulf of Eilat, both sand beaches,
     but not the rift lakes. `ScBeachM` is 650 m on average, +-40% on a 4 km noise. The width is symbolic, after the
@@ -1714,6 +1716,28 @@ load of 4-6:
 Boot (`headed.py boot --cpu 4 --runs 3`, one round each, before the rebase): map_build median 3389 ms on main and 3106
 on the branch, and `kits built` 828 against 785 ms in the last run. The branch is not slower: the boats' placement and
 one more mesh are not measurable against the run-to-run spread.
+
+### Sea round 3: the surf as lace (branch `visual/c1-foam-lace`, refs #388)
+Plan C1 part 2 (`.superpowers/plan-C1-beach.md`). The 2026-10-15 audit still saw one swash line and a smooth turquoise
+band where promo 03 has 2-4 broken white lines. Everything is in the water's own pass (`ScWaterShade`); the terrain
+function is unchanged.
+- **Constants:** `ScSurfM` 900 m to 1.8 km, `ScBreakerSpacingM` 300 to 450 m (`ScBreakerRate` kept, so 22.5 m/s), and
+  `ScFoamWhite` 0.95 (0.85 before) on the foam's lerp to white.
+- **The `foam` toggle** (`_ScSeaFoam`, `MapShaderGlobals`): a 200 m value-noise net, kept under 0.62 with a fixed 0.25
+  edge, replaces `broken` so each crest breaks on its own (one 300 m blob of `broken` covered two crests 450 m apart).
+  - A footprint-scaled edge aliased: `TheBreakersAreFilteredToThePixel` p99 0.067 at 140 m. The fixed edge keeps it
+    at 0.0113 against the unchanged 0.014 bound.
+  - The net's mean is 0.676 against `broken`'s 0.5, so the breakers carry about 35% more foam at the gameplay zoom. Both
+    fade to 0.5 at 75-150 m pixels, so the overview is unchanged and zooming out through that range dims the breakers
+    by about a quarter.
+- **Test:** `SeaTests.TheSurfShowsABrokenBreakerBeyondTheSwashAtTheGameplayZoom` guarantees the swash and at least one
+  breaker past it, at 3 of 4 moments, west of Tel Aviv and south of Jaffa, with a foam share in [0.3, 0.7]. Promo 03's
+  2-4 lines are not yet met; they are read again after #519's grade.
+- **Profile** (`?vprofile` headless, 1920x1080, exclusive lock, against main e6f98962): gameplay03 `all` 8.52 ms,
+  `-foam` 8.48 (foam 0.04 ms, budget 0.5), `none` 7.41 (main 7.47), p95 11 (main 11); diorama02 `all` 16.47, `-foam`
+  16.52, p95 18 (main 18).
+- **Bands** (gameplay03 `?shot`, south of Jaffa, before #519): foam band 9.0 to 20.6 px (promo 44, band 25-55), foam
+  share 0.59 to 0.48 (promo 0.54), the strict lace-line median still 1 (promo 2); north foam 5.8 to 13.0 px.
 
 ## Promo track: land use (issue #33, branch promo-land)
 The flat mustard/olive ground becomes the promo's patchwork. `tools/land_bake.py` (no network, about 20 s, deterministic:
@@ -2485,6 +2509,207 @@ the biggest gap to promo 03. Measured with its crops and poses: editor renders (
   Techniques in Palestine", Prostor 25 (2017) 140-153, https://doi.org/10.31522/p.25.1(53).9
 - The White City (1930s International Style, flat roofs, balconies): https://en.wikipedia.org/wiki/White_City,_Tel_Aviv
 
+## Arab villages: dense, terraced cores (visual gap S1, branch `visual/arab-villages-s1`, refs #32)
+The 2026-10-15 gap audit ranked this 9 of 10: promo 03's Qalqilya, Lydda and Ramla are dense packs of layered stone
+houses, while main drew each 1948 Arab locality as a handful of large cubes with a domed mosque at its heart, so the
+hills read as evenly spaced dice, nearly every one with a dome.
+
+**Cause on main `c02d4eb0`.**
+- The 250 Arab localities (type `village` or `arab_town`, mixed Nesher aside) took the promo-villages scatter
+  (`BuildOne`). They are 234 Muslim (216 villages and 18 Arab towns), 11 Christian (a church) and 5 Druze (no
+  landmark). Each wanted six buildings (`TargetCount`'s floor: at 100x the built-up share asks for fewer), each 6.5-12 m
+  real, so 650-1,200 m wide, on random spots. Counted from their lots: 1,063 houses, median 5, and 17 with none.
+- Every Muslim locality built the domed town mosque at 0.8 size (a 672 m hall, a 264 m dome and a 1.25 km round minaret).
+
+**Changes** (`SettlementKits.cs`, `SettlementKits.Landmarks.cs`):
+- **Layout.** An Arab locality is laid out on the village plot lattice (`PlaceHouses`, towns round 2), as Lod and Ramla
+  are, nearest its heart first. As before, it builds only in its own cell, off the routes, the grid's edge midpoints
+  (review M10) and every other place's lots. It keeps no beach setback: the coast's villages met the shore, as their
+  scatter drew them. Where the routes, a bigger neighbour or the cell's seam leave fewer than ten houses
+  (`VillageFloor`), small village houses fill free spots over its plot reach, nearest the heart first.
+- **The village lattice** (`Style.Village`, so also Lod, Ramla, Tiberias, Safed and Jerusalem's Arab quarters):
+  - The pitch is 6.6 x 6.2 m (was 7.6 x 7.2) with less jitter. Houses are 3.8-5.4 x 3.6-5.0 m (was 4.4-6.6 x 4.2-6.0),
+    so the lanes run about two metres real.
+  - It is built solid to 0.75 of the radius (was 0.5), and 0.85 at the radius (was 0.6).
+  - More two-storey houses in the core: 60% falling to 15% (was 45% to 10%). Single-storey houses keep their roof
+    rooms, and the roofs stay flat lime plaster.
+  - House domes on hill houses fall from 7% to 3%. A village now draws about twice the houses, so it keeps about the
+    domes it had.
+- **Terraces.** A hill house (above 120 m) whose ground falls more than 0.8 m across its footprint, beyond its 2 m
+  plinth, stands on a terrace. The terrace is a dry-stone retaining wall up to the house's uphill ground, with a yard
+  0.3 m wide round the walls. The house's lot covers the terrace.
+- **The mosque rule.** Every Muslim locality keeps its mosque: all 271 localities are places of 1,000 or more people,
+  none a hamlet. A village's mosque is now a village mosque (`VillageMosque`):
+  - a one-storey stone hall, 12 x 9 m at the landmark scale (0.8 x 60x: 576 x 432 m);
+  - a flat lime roof and no dome;
+  - a short, thick square minaret at one corner, about 14 m tall (672 m), inside the hall's footprint.
+
+  The domed mosque with its tall round minaret stays with the 18 Muslim Arab towns (Hebron, Nablus, Majdal, Qalqilya
+  and the others), and with the game towns, which keep their own landmarks. So the domed mosques at the localities go
+  from 234 to 18. House domes stay: 3% of hill houses, about main's count per village (see above).
+- **The game towns keep their ground.** A village keeps its houses out of every smaller game settlement's plot reach,
+  plus the lot of that settlement's largest fallback house. That settlement places its houses, and its small-town
+  fallback (#317), after the village. Without this rule, Hiribya's packed lattice left Yad Mordechai 1 house against
+  its measured floor of 3.
+
+**Historical basis** (sources below):
+- Village houses were single rooms, ranging "from three meters in small houses" to more than ten in big ones, clustered
+  round yards "in a compact and convergent manner" (Abuarkub 2018). The kit takes the small end (3.8-5.4 m), so a
+  village at 100x holds more houses. A caution: IJCIET's publisher, IAEME, is widely listed as a predatory publisher.
+  The quoted phrases are in the paper and only a visual parameter rests on them, but a stronger reference (such as
+  Amiry and Tamari, *The Palestinian Village Home*, 1989) has not been checked yet.
+- Hill villages such as Battir stood among stone field terraces round the village. The terrace under a sloped house is a
+  modelling choice that carries that stepped look into the village itself, not a sourced house form.
+- A village mosque was a one-storey hall with a chunky minaret at one end (Qaysaria), and a village's square minaret
+  stood 10-15 m (Kawfakha, from Petersen's gazetteer).
+- No source here supports leaving out the mosques of the villages of 1,000 or more people. So the rule makes them
+  smaller and domeless; it does not drop them.
+
+**Result** (EditMode census: `VillageKitTests`, `TownCensusTests`; main from the localities' lots on the same build):
+
+| | main `c02d4eb0` | branch |
+|---|---|---|
+| Arab localities' houses (250, churches and Druze villages included) | 1,063, median 5 | 2,617, median 11 (`VILLAGES`: max 50) |
+| localities with no house | 17 | 9, all inside Jerusalem's or Tel Aviv's footprint (Silwan, At-Tur, Lifta, Abu Dis, Sheikh Muwannis...) |
+| hill villages (150): median houses, core cover by houses | not recorded (main records no locality house) | 12, 17.5% |
+| domed mosques at the localities / village mosques | 234 / 0 | 18 / 216 |
+| Lod / Ramla houses (census) | 11 / 11 | 16 / 16 |
+| WebGL `KITS` line: buildings, vertices, triangles, draws | 1,972, 103,537, 70,572, 64 | 3,632, 167,329, 89,178, 64 |
+| grid readable at gameplay03 (floor 75%) | 79% (70 of 89) | 83% (74 of 89) |
+
+- The villages under six houses outside the game towns are Yibna, Taibe, Bayt Dajan, al-Bireh (beside Ramallah),
+  al-Jura, az-Zeeb, Wadi Hunayn, Tantura, Nazla and al-Jiyya (10 of about 200). The routes, the coast and bigger
+  neighbours take their ground. The test holds the count at 5% or fewer.
+- The core cover counts houses only (review of #647). Counted with the mosque, main's domed mosque alone covers 35.8% of
+  the median hill core (49 of 137 samples), and the branch's houses and smaller mosque together also come to 35.8%. That
+  match is a coincidence of the two medians, not a shared cause, and it is why the first version of the test passed on
+  main. The test's floor is 15%, against the measured 17.5%. Main records no locality house, so on main the test reads
+  0%. That proves the test sees the houses; it does not show that main's large cubes covered less of the core.
+- Each house stays at the house scale (100x): no village house is over 5.4 m real. The census and town tests pass,
+  every town is at or over its floor, and Yad Mordechai is back to 3.
+- The goldens are unchanged (`GOLDEN OK 1950 71e9904d`, `1952 62f8ec61`).
+- **Against promo 03** (`p2-villages-s1-compare/`):
+  - The villages now read as packs of small houses with lanes, not as dice, and the domed mosques are gone from the
+    villages. House domes remain on 3% of hill houses.
+  - The promo's Qalqilya still has more and taller houses: 30-40 houses of two or three storeys on terraced rings.
+    At 100x a village's 1.3-1.4 km footprint holds about 19 plots, so 30+ houses would need a smaller house scale or a
+    larger village footprint (an owner call).
+  - The promo's warmer honey stone and its shading are the palette and `Kit.shader`, out of scope here.
+
+**Frame time** (headless WebGL `?vprofile`, 1920x1080 at DPR 1, each slot under one `machine_lock.py --exclusive
+--wait-unity`, two slots in opposite orders, load 2-4, 2026-10-15; builds of main `c02d4eb0` and this branch before its
+rebase onto #557, which adds the ma'abara kit and no village):
+
+| | gameplay03 all (p95) | gameplay03 all - none | diorama02 all (p95) | diorama02 all - none |
+|---|---|---|---|---|
+| main, slot 1 / 2 | 8.21 / 8.21 ms (10 / 10) | 0.15 / 1.26 ms | 15.92 / 16.29 ms (17 / 17) | 4.98 / 5.28 ms |
+| branch, slot 1 / 2 | 8.23 / 8.23 ms (10 / 10) | 1.25 / 1.24 ms | 16.10 / 15.94 ms (17 / 17) | 4.98 / 5.18 ms |
+
+- Frame time is equal within the runs' spread. Main's 0.15 ms in slot 1 is its noisy `none` row (spread 1.1 ms).
+- The localities stay merged per 30 km tile, so the draws stay at 64. The triangles grow from 70,572 to 89,178.
+- The kits' own cost, all - (-kits), is within noise on both: -0.32 / -0.09 ms on main and -0.05 / -0.11 ms on the branch
+  at gameplay03.
+- **Boot** (`headed.py boot --runs 3 --cpu 4`, in slot 2): map_build median 2147 ms on main against 2293 ms on the
+  branch (+146 ms), and first_frame 7780 against 7906 ms. The map build stays 427 ms under the 2720 ms budget.
+  - The cost is the kit build: the player's `KITS build_ms` is 45 ms on main and 77 ms on the branch at cpu 1.
+  - Most of it is the village lattice's plots and their fits, and the floor's spots for the villages under ten houses.
+  - One round only. A tighter kit phase (fewer floor spots) is the lever if #321 needs the headroom.
+
+### Sources (checked 2026-10-15)
+- One-room village houses ("from three meters in small houses"), clustered round yards: M. Abuarkub, "Classifications and
+  Revitalization of Traditional Houses in the Rural Areas in Palestine", IJCIET 9(12) (2018) 1141-1161,
+  http://iaeme.com/MasterAdmin/Journal_uploads/IJCIET/VOLUME_9_ISSUE_12/IJCIET_09_12_118.pdf
+- Battir, on a valley slope, its historical core surrounded by agricultural terraces: https://en.wikipedia.org/wiki/Battir
+- A village minaret "chunky as it rises above the one-story mosque" (Qaysaria): L. Dittmar, "A View from the Minaret",
+  Harvard Divinity Bulletin (2019), https://bulletin.hds.harvard.edu/a-view-from-the-minaret/
+- Kawfakha's mosque, a "thick square minaret 10-15 meters high" (Petersen 2001, pp. 195-196): https://en.wikipedia.org/wiki/Kawfakha
+
+## Tel Aviv's White City (visual gap S2, branch `visual/telaviv-bauhaus-s2`, refs #31)
+The 2026-10-15 gap audit (`.superpowers/visual-gaps-2026-10-15.md`, S2) found promo 03's Tel Aviv to be white Bauhaus
+blocks of four to eight storeys, with balcony bands, ribbon windows, roof terraces and palms in the streets, about 45-60 px
+wide in a 1920 frame. Main drew white boxes of two to seven storeys, about 25-30 px wide, with no street trees.
+
+**Owner rulings on #652** (2026-10-15):
+- "Lower floor to ~30, wider blocks": blocks about 1.6-2 times main's width, more height variety, and open plots for
+  palms. The first round kept the 50-building floor; its widest block that held it was 15.8 m, 1.2 times main's.
+- "Keep strips (promo look)": the ribbon windows stay.
+
+**Changes** (`SettlementKits.TelAviv.cs`; Tel Aviv only, on its own lattice style `Style.TelAviv`; Haifa's Hadar keeps
+`Style.WhiteBlock`):
+- **Blocks:**
+  - Size: 21-24 x 13-15 m real (main 12-16 x 9-11.5), on a 27 x 19 m pitch (main 18.5 x 13.5).
+  - Plots: every plot is built in the core, and nine in ten at the edge (main seven in ten).
+- **Storeys**, in three tiers as promo 03's skyline (promo over era, owner ruling 2026-10-10):
+  - tall blocks of seven or eight storeys, 60% of the core's and 35% at the edge;
+  - low blocks of four, 36%;
+  - the rest five or six.
+- **Facade:** a dark ribbon window runs along each long side of every storey, above the balcony bands that
+  `WhiteBlockDetail` already drew.
+  - It is geometry: two triangles per storey and side, set a hair proud of the wall.
+  - It is not done in `Kit.shader`, which is unchanged. At gameplay03 a 2 m window bay is under a pixel, so the shader's
+    discrete windows fade to their mean, while a strip stays a band.
+- **Pilotis** under a quarter of the blocks: a recessed, shaded ground storey under the block (the White City's first was
+  Engel House, 1933).
+- **Roof terraces:** a plastered parapet round every flat roof, warmer paving inside it, the stair head and, on four in ten,
+  the laundry room.
+- **Street palms** in Tel Aviv's own mesh:
+  - Where: street crossings, street middles, and a 3 x 3 grove over each plot left open.
+  - Size: each is as large as its spot allows, 0.7-1.6 times the city blocks' scale, with 85% of its crown clear of every
+    block.
+  - Order: they are placed after every place's houses and the camps, and before the small towns' fallback, so they move
+    nothing.
+  - Each claims a lot, so no tree grows through one.
+- **#507:** everything is in `tel_aviv_kit`, so a model that turns the town's kit off hides all of it.
+
+**Result** (editor census, `TownCensusTests`; main 98515c52 → branch):
+
+| Tel Aviv | main | branch |
+|---|---|---|
+| buildings (+wings) | 55 (+18) | 27 (+4) |
+| cover, whole / core | 25.5% / 25.6% | 27.2% / 23.7% |
+| storeys min / median / max | 2 / 5 / 7 | 4 / 5 / 8 |
+| height spread (cv) | 0.30 | 0.31 |
+| median block width (real m) | 13.1 | 21.9 (1.67x) |
+| street palms | 0 | 26 |
+
+- **Floors:** Tel Aviv's floors follow the ruling: 24 buildings (in `Floors` and `MainBuildings`), and cover 24.5% / 21%.
+  - All are about 10% under the measure.
+  - They were 50 buildings and 22.5% / 25% cover, with a `MainBuildings` row of 36.
+  - Every other town's floor is unchanged.
+- The ruling said about 30 buildings. At 1.6 times main's width the lattice holds 27; the sweep's 29-32-building
+  variants kept median widths of only 15.8-17 m. The owner then chose "27 wide blocks (Recommended)" (#652, 2026-10-15).
+- **Neighbours:**
+  - Jaffa draws 39 buildings (main 38), with cover 39.0% (main 39.0%).
+  - Petah Tikva draws 9 (main 9), with cover 20.7% (main 20.3%).
+  - The 1948 localities draw 2,898 houses (main 2,895).
+  - The other 22 towns are unchanged.
+- **Kit numbers** (editor `KITS` line): vertices 167,301 → 173,789, triangles 89,166 → 92,616, draws 64 → 64.
+- **Frame time:** not re-measured for this round. The vertices rise by 4%, less than the first round's 13%, which measured
+  as below (WebGL `?vprofile`, headless, 1920x1080, DPR 1; main c02d4eb0 and the first round back to back under one
+  exclusive `machine_lock`, 2026-10-15; `PROFILE summary` median avg / p95 in ms):
+
+  | pose, toggles | main c02d4eb0 | first round |
+  |---|---|---|
+  | gameplay03, all | 8.33 / 10 | 8.33 / 10 |
+  | gameplay03, -kits | 8.61 / 10 | 8.39 / 10 |
+  | diorama02, all | 15.65 / 17 | 15.89 / 17 (spread 0.84) |
+  | diorama02, -kits | 15.70 / 17 | 16.05 / 17 |
+
+  - The kits' cost (all minus -kits) is within the spread on both.
+  - The machine was shared with other sessions' jobs between runs. Diorama02's p95 of 17 ms is over the 16.7 ms budget on
+    main as well, so it is not this change.
+
+**Accuracy.** The White City article (https://en.wikipedia.org/wiki/White_City,_Tel_Aviv, checked 2026-10-15) has:
+- pilotis from 1933 (Engel House);
+- long, narrow balconies;
+- flat roofs used as shared space;
+- white and light colours;
+- small parks between the buildings;
+- the Geddes plan, 1925-29.
+
+It describes the windows as small and recessed, not ribbon windows. The strips follow promo 03 (owner ruling on #652,
+"Keep strips (promo look)"), as the storeys do.
+
 ## Issue #195: the water and the border lookups out of the terrain's fragment shader
 - **Why.** promo-sea (#138) put the water shading (`ScWaterShade`, the breakers' `fwidth`, the footprint) in the terrain
   graph's function, and promo-borders (#206) six neighbour fetches in `ScBorderApply`'s loop. Either one makes the shader
@@ -2628,6 +2853,102 @@ the biggest gap to promo 03. Measured with its crops and poses: editor renders (
   spreads are 1.5-7 ms. diorama02 `all`: main 41.81 / 33.81 ms, branch 41.09 / 39.46; `none`: main 28.02 / 23.97, branch
   26.36 / 24.83. gameplay03 `all`: main 11.95 / 13.99, branch 13.27 / 12.40. The branch sits inside main's range in
   every row: within noise, as expected for one more uniform in an unchanged pass.
+
+## Issue #38: grade retune (land against promo 03, sea kept blue)
+- **What changed.** `MapGrade`: contrast 14 -> 18, post exposure 0.15 -> 0.45, saturation 0 -> -7, temperature 5 -> 3,
+  tint 2 -> -2, split-tone shadows teal (0.36, 0.52, 0.60) -> near-neutral (0.43, 0.46, 0.49), highlights amber (0.96,
+  0.78, 0.55) -> near-neutral (0.84, 0.87, 0.835), balance -15 -> -31. The tonemapper and the vignette (0.26 / 0.45) are
+  unchanged. The look is crisper: more contrast, the low end pulled down by the balance and the mid-tones lifted by the
+  exposure, while saturation -7 takes back what contrast 18 adds, so the land keeps main's warmth and saturation.
+- **How it got here: four owner decisions on #519.**
+  1. The first fit (temperature 7, saturation -4, highlights (0.96, 0.78, 0.62), vignette 0.34 / 0.84) darkened
+     gameplay03's sea. The owner's rule: wait for the sea PR (#536), re-measure, and "if the sea is still dark, use main's
+     vignette". After #536 the open sea read luma 0.254 / p5 0.172 against promo 03's 0.351 / 0.295 and main's 0.340 /
+     0.290, more than 0.02 below both, so the vignette went back to main's.
+  2. With main's vignette diorama02's whole-frame warmth was 0.169, over #38's 0.145: the owner chose "Re-fit the warmth"
+     (the highlights' colour and the balance, temperature and tint in small steps, no exposure change that darkens the sea).
+  3. No such re-fit met both 0.145 and #555's border-stripe test at exposure 0.55; the owner ruled "Exposure 0.45, sea
+     slightly darker" (2026-10-15). That grade (temperature 3, saturation -2, pale rose highlights (0.89, 0.80, 0.88),
+     slate shadows (0.45, 0.45, 0.53), tint 2) met the numbers but read pink, turned the table around the diorama maroon,
+     and moved the Israeli border stripe 8.1 deltaE76 from the owner's ruled blue (0.6 on main).
+  4. After side-by-sides the owner chose "Less pink, then merge" (2026-10-15): keep the exposure and contrast, take the
+     rose out of the land and the table, and bring the stripe back to about 3 deltaE76 of the ruled blue or less.
+- **The less-pink re-fit.** Each candidate was checked by EditMode (`GradeTests`, and `ControlTests`'
+  `ThePrimaryStripeIsTheDeeperBlueOfTheRuling`, which logs the stripe's deltaE76 to the ruled blue (89, 119, 156)), then
+  built and shot in WebGL. The stripe was too blue (94, 119, 169 at the pink grade), and the slate shadows' blue was most
+  of it: near-neutral shadows took it to 3.8. Green-highest highlights and tint -2 took the rose out of the land; they
+  warm it, and saturation -7 (with temperature 3) brings diorama02's warmth back under 0.145. A rose index, (R - G) -
+  (G - B) of the land's mean colour, measures the cast: above 0 reads pink or rose, below 0 olive or yellow.
+
+  | candidate (temperature, saturation, tint, shadows, highlights) | d02 warmth (bar 0.145) | stripe deltaE76 | land rose | tests |
+  |---|---|---|---|---|
+  | the pink grade (3, -2, 2, 0.45/0.45/0.53, 0.89/0.80/0.88) | 0.144 | 8.1 | +8 | pass |
+  | 3, -3, 0, 0.46/0.47/0.50, 0.88/0.85/0.82 | 0.157 | 3.8 | -1 | pass |
+  | 4, -3, -2, 0.45/0.46/0.49, 0.87/0.86/0.83 | 0.158 | 2.6 | -4 | pass |
+  | 3, -6, 0, 0.46/0.47/0.50, 0.85/0.87/0.84 | 0.149 | 2.9 | -3 | pass |
+  | 4, -7, -2, 0.45/0.46/0.49, 0.85/0.87/0.84 | 0.150 | 1.8 | -3 | pass |
+  | 3, -8, -1, 0.46/0.47/0.50, 0.86/0.86/0.85 | | 2.6 | | saturation x0.980 (floor) |
+  | **3, -7, -2, 0.43/0.46/0.49, 0.84/0.87/0.835 (this grade)** | **0.141** | **2.1** | **-5** | **pass** |
+
+- **What is measured.** The targets are region-based (maintainer's decision on #38): the land against promo 03's land,
+  the sea held, #388's sea floors, and diorama02's whole-frame warmth in [0.087, 0.145]. Shots: WebGL `?shot`, 1920x1080
+  (`tools/art_checkpoint.sh`'s `web_check.py --query "golden&shot" --shots`). Crops, measured with
+  `.superpowers/audit-2026-10-13/renders/m.py`: land `(0.36, 0.20, 0.95, 0.80)` (promo `(0.36, 0.30, 0.83, 0.80)`), open
+  sea `(0.02, 0.15, 0.28, 0.45)` (promo `(0.05, 0.12, 0.25, 0.30)`, the 2026-10-13 audit's; promo 03's wider sea crop
+  takes in its dark UI buttons), frame `(0, 0.09, 0.83, 0.83)` (promo `(0, 0.07, 0.83, 0.80)`), diorama02 board
+  `(0.31, 0.12, 0.71, 0.97)` (promo 02 `(0.02, 0.13, 1, 1)`), diorama02 open sea `(0.29, 0.12, 0.37, 0.26)` (promo 02
+  `(0.05, 0.15, 0.30, 0.55)`), diorama02 Negev `(0.35, 0.75, 0.55, 0.95)`, diorama02 table `(0.01, 0.3, 0.12, 0.7)`. The
+  whole-frame warmth and palette distance are `tools/art_compare.py`'s; #388's detail and spread are #536's measures.
+  Main and this grade were both measured on main `732ceab8`.
+
+  | | promo | main | this grade |
+  |---|---|---|---|
+  | g03 land luma / p5 / contrast | 0.425 / 0.145 / 0.187 | 0.481 / 0.181 / 0.170 | 0.501 / 0.179 / 0.187 |
+  | g03 land saturation / warmth | 0.363 / 0.181 | 0.370 / 0.201 | 0.373 / 0.202 |
+  | g03 land mean colour, rose index | (130, 104, 84), +6 | (141, 121, 90), -11 | (148, 125, 97), -5 |
+  | d02 Negev mean colour, rose index | (190, 156, 128), +6 | (204, 169, 106), -28 | (212, 180, 126), -22 |
+  | d02 table mean colour, rose index | | (50, 47, 41), -3 | (58, 44, 31), +1 |
+  | g03 open sea luma / p5 / warmth | 0.351 / 0.295 / -0.248 | 0.335 / 0.285 / -0.219 | 0.331 / 0.276 / -0.199 |
+  | g03 frame p5 / contrast / warmth | 0.148 / 0.184 / 0.064 | 0.235 / 0.157 / 0.040 | 0.230 / 0.176 / 0.046 |
+  | #388 detail / spread (crop; focus band) | 0.060 / 0.201; 0.075 / 0.316 | 0.036 / 0.102; 0.037 / 0.104 | 0.038 / 0.113; 0.041 / 0.119 |
+  | whole-frame warmth g03 / d02 | 0.064 / 0.145 | 0.060 / 0.131 | 0.066 / 0.141 |
+  | palette distance g03 / d02 (#388 bars 0.44 / 0.56) | | 0.36 / 0.58 | 0.35 / 0.57 |
+  | d02 board luma / warmth | 0.556 / 0.152 | 0.590 / 0.230 | 0.623 / 0.204 |
+  | d02 open sea luma / p5 | 0.437 / 0.371 | 0.410 / 0.399 | 0.418 / 0.403 |
+  | border stripe deltaE76 to the ruled blue | | 0.6 | 2.1 |
+
+- **What is left.** The land is brighter than the promo's (luma 0.501 against 0.425; main 0.481); its warmth and
+  saturation stay at main's (0.202 / 0.373 against main's 0.201 / 0.370 and the promo's 0.181 / 0.363). Its hue sits
+  between main's yellow and the promo's slight rose (rose index -5; main -11, promo +6). The table around the diorama is
+  a little warmer brown than main's. The open sea is 0.020 under promo 03's luma and 0.019 under its p5 (main's own sea is
+  0.016 / 0.010 under). diorama02's palette distance (0.57) is over #388's 0.56, as main's (0.58) already is. Met:
+  diorama02's whole-frame warmth (0.141), the land's contrast (0.187 against the promo's 0.187; main 0.170), #388's detail
+  and spread floors, and the stripe within 3 deltaE76 of the ruled blue.
+- **Why one global grade cannot do it all.** Contrast works per channel in log space, so it raises every colour's
+  saturation; taking the land well under main's saturation needs a large negative Saturation, which turns the sea grey-navy
+  (a -25 trial, on dc4b272: sea warmth -0.12, `TheOpenSeaStaysBlueUnderTheHaze` b - r 0.149 against its 0.15). Warm
+  split-tone shadows (#391) push the sea warm in the same way.
+- **Tests.** No test or threshold changed (a stale saturation note in `GradeTests` was updated). EditMode 1157 of 1159
+  on main `732ceab8` with this grade (2 explicit tests not run), 0 `warning CS`; the filtered Grade, Sea, SeaCraft,
+  Border, BorderEdge, Map, MapEdge, MapLabel, BiomeColourBake, TerrainShader, Control, Settlement and Kit suites 222 of
+  222 on main `988279c3`. The grade's own tests: saturation 0.411 -> 0.411 (x0.999), clipped 0.00% (Negev and
+  gameplay03), vignette corner/centre 0.754 -> 0.576, selection deltaE 32.6 graded at gameplay03 (28.9 ungraded) and 38.6
+  at diorama02 (33.4), colour-blind sea-land 47.1 / 40.1, selection-land 31.2 / 32.3, selection-sea 59.1 / 54.8
+  (deuteranopia / protanopia). The sea tests: `TheOpenSeaStaysBlueUnderTheHaze` b - r 0.216, `BandsStayOffTheWater`
+  633,139 sea pixels (100k bar), `TheBreakersAreFilteredToThePixel` p99 0.0129 (0.014 bar), `TheBakesCarveTheRelief`
+  0.1021 -> 0.1134 (x1.111, 1.08 bar). `ThePrimaryStripeIsTheDeeperBlueOfTheRuling` 2.1 deltaE76 from the ruled blue,
+  against 10.6 for main's lighter blue. Thin margins: the highlights' red is over their blue by 0.005 (the warm-highlights
+  check), diorama02's warmth is 0.004 under its bar, and the open sea sits at the coordinator's hold (luma 0.33, p5 0.27).
+- **Frame time** (headed WebGL `?vprofile` through `tools/headed.py profile`, 1920x1080, DPR 1, frame rate uncapped,
+  under `machine_lock.py --exclusive --wait-unity`; main `732ceab8` and this grade interleaved main, grade, grade, main;
+  medians of the average): gameplay03 `all` 8.51 / 8.72 ms against main's 9.26 / 8.44, diorama02 16.27 / 17.16 against
+  19.73 / 16.55; p95 10-11 and 17-18 ms (main 10-11 and 17-22). The grade's own cost (`all` minus `-grade`) is -0.12 /
+  -0.24 ms at gameplay03 and -0.27 / 0.00 at diorama02, against main's +0.22 / +0.05 and +2.71 / +0.10 (main's first
+  round ran on a busy machine): noise. Only the LUT's inputs change; the passes and shader variants are the same.
+- **Labels** (the label pills are UI, drawn after the grade, over the same 7 gameplay03 and 11 diorama02 label boxes as
+  main's shot). Text against the pill's fill (WCAG): gameplay03 at least 5.5 (main 5.7), median 8.6 (9.0); diorama02 at
+  least 6.3 (6.7), median 7.8 (8.2). Fill against the ground around it: gameplay03 at least 2.07 (2.01), diorama02 at
+  least 2.34 (2.33).
 
 ## HUD round 1: the info panel and the gilt trim (#398, #397)
 
@@ -2799,6 +3120,73 @@ diorama02 all 33.79 (0.21) / 33.81 (0.25), none 27.91 (0.04) / 27.87 (0.01). The
 Diorama02 `none` is 0.35-0.4 ms lower on the branch in both positions, outside the spreads; at DPR 2 the same cell is
 equal (27.91 / 27.87). It is not explained (the branch draws four fewer captioned buttons in the bar, but that is not
 measured on its own), so it is not claimed as a gain.
+
+## HUD round 2, part 3: the top bar (#398)
+
+T54 measured the bar at 8.8% of the frame's height against promo 03's and T29's 6.5%. The one-row bar is now 70 px:
+- The date plate hangs below it, as promo 03's "1936 / Turn 1 / January 1936" plate does. It is at least 98 px tall and
+  grows if the date wraps to a third line. #598's "Score {n}" stays at the far end of the year line.
+- The meters keep two lines, caption then value and change. Security's "Level 5 of 5" sits beside its caption; it was a
+  third line. Captions are 15 px, values 21 px (24 on the roomy bar), with the icons as before.
+- New Game is a round icon with no caption, as promo 03's bar buttons are. Its name is its text, drawn clear (the event
+  log reads it), and its tooltip, which `HoverTip` shows beside it on hover and on focus.
+- End Turn is 20 px with its attention line at 14 px.
+- With the four screen buttons in the left column (#602) the bar needs about 248 px less, so each width tier starts that
+  much narrower (`HudPresenter`). Logical width is the window's width over the panel's scale, which is the plain mean of
+  the two ratios, (w/1920 + h/1080) / 2 (logged by `TopBarTests`). The one-row edge is 1640, between a fullscreen 5:4 and
+  4:3 (review of #624 asked whether a fullscreen 5:4 could keep the one-row bar; at 1563-1612 it wrapped "Public Support"
+  and "International Standing" (the captions' names then; #622 and #683 renamed them) with the widest values, while at 1635 it still fit, so 1640 is a margin, not a limit). So 16:10 (~1819) and 4:3 (~1646) keep the one-row bar with its icons,
+  a fullscreen 5:4 (~1585) takes the stacked bar with them, and a square window (~1382) the stacked bar without. The
+  taller tiers' heights are unchanged.
+- The panels under the bar keep their 112 px top, which clears the hanging plate. Under a decision card a full-width band
+  of the backdrop runs from the bar's bottom to the column's top (`event-scrim-top`), so no strip of map stays live and
+  the hanging plate is dimmed evenly; the column's strip starts at the column's top (`TopBarTests.WithACardOpenTheBackdropMeetsTheBar`).
+- The plate is a label occluder (`date-plate` in `MapLabelsPresenter.OccluderNames`), since the bar's box no longer covers
+  it (`MapLabelTests.APillUnderTheHangingPlateIsHidden`).
+- Security's level and the attention line are 15 px, the accessibility audit's floor (H4); they were 13 and 14.
+- The owner's text floor (15 October 2026): the bar's small text stays at least 12 px on screen at small windows. The panel
+  scales with the window (0.67 at 1280x720, 0.62 at 1024x768), so `HudPresenter` sets it to the whole px that keeps 12 on
+  screen (18 px at 1280x720, 20 at 1024x768; in a browser, CSS px: the panel's scale over `devicePixelRatio`). Raised
+  captions stay on one line, the turn box widens with them, and the tiers read the bar's width less the room this takes
+  (`FloorGrowth`), so 1024x768 takes the stacked bar without icons; above 18 px the one-row bar's turn box no longer fits
+  its 70 px, so 1366x657 takes the stacked bar. The phone tier (three rows) keeps 15 px: its fixed rows have no room for
+  25 px captions (a follow-up, by the owner's answer). The plate's turn and date line takes the same floor (the owner's
+  second answer): the plate keeps its 230 px width, the turn and the date take a line each,
+  and the plate's padding (18 px at the sides, 9 at the top and bottom) keeps every line inside its gilt frame's inner
+  rule and at least 0 px from the 18 px corner zones (the scrolls' reach of about 14 px, plus 4; the score sits on a
+  zone's edge at 1280x720, 4 px clear of the scroll); the plate grows to hold them, taller and, where the date needs it (23 px at 960x600), wider
+  than 230 px, and the tiers count the extra width.
+- In Hebrew the bar's row mirrors (#550): the plate is at the right and End Turn at the left. The left column and the
+  minimap keep their corners.
+
+Measured on the WebGL `?shot` frames (`measure_bar.py`: the rows from the top until the frame's middle third stops being
+dark; promo 03 and T29 include a 3 px gold rule):
+
+| frame | bar | share of height | plate bottom | share | plate below the bar |
+|---|---|---|---|---|---|
+| promo 03 | 103 px | 6.7% | 130 px | 8.5% | 27 px |
+| demo2 T29 | 73 px | 6.8% | 91 px | 8.4% | 18 px |
+| before (#602), gameplay03 and diorama02, EN and HE | 95 px | 8.8% | 95 px | 8.8% | 0 |
+| after, gameplay03 and diorama02, EN and HE | 69 px | 6.4% | 97 px | 9.0% | 28 px |
+
+At 21:9 (2560x1080) the panel scales by the plain mean of the two ratios, so the 70 px bar is 7.6% of the frame.
+
+Frame time (`?vprofile` headless 1920x1080 with a temporary, uncommitted all/none-only FrameProfile patch on both builds,
+then a headed DPR 2 pair) and boot (`headed.py boot --runs 3`), one `--exclusive` slot of 8 minutes, interleaved base,
+branch, branch, base; base is #602's head 192fdf31. Median avg ms (spread):
+
+| | base | branch | branch | base |
+|---|---|---|---|---|
+| gameplay03 all | 8.19 (0.07) | 8.14 (0.07) | 8.12 (0.04) | 8.19 (0.04) |
+| gameplay03 none | 7.02 (0.06) | 6.96 (0.07) | 6.94 (0.05) | 7.02 (0.07) |
+| diorama02 all | 15.75 (0.39) | 15.72 (0.41) | 15.74 (0.54) | 15.55 (0.38) |
+| diorama02 none | 10.74 (0.05) | 10.69 (0.10) | 10.74 (0.11) | 10.72 (0.11) |
+| boot map_build / first_frame, cpu 1 | 540 / 3761 ms | 567 / 3786 ms | 562 / 3792 ms | 541 / 3779 ms |
+
+DPR 2 headed, branch then base (spread): gameplay03 all 19.09 (0.24) / 19.10 (0.20), none 17.75 (0.02) / 17.85 (0.02);
+diorama02 all 33.96 (0.27) / 33.79 (0.19), none 28.08 (0.14) / 27.97 (0.10). Frame time is equal within the spreads.
+Boot's `map_build` median is about 24 ms higher on the branch in both positions, but its single runs overlap base's (base
+524-552 ms, branch 546-570 ms), the change touches no map code, and both are far inside the 743 ms budget at cpu 1.
 
 ## Issue #391: the terrain shader's frame-time cliff (warm land shade, not shipped)
 #391 asked for the shaded hill ground to read warm brown, as promo 03's does (about (67, 53, 46)), rather than olive-grey.
@@ -2980,3 +3368,67 @@ budget: a `-compression disabled` WebGL build, `tools/headed.py boot --runs 3 --
   not met.
 - Main has moved since (HUD round 2: #584, #602; #598's `?mvp` flag). They are expected to run after `map built`, and
   so outside this span, but that was not checked and they were not re-measured.
+
+## The art guards mask the HUD (T74, #388)
+Promo 03 has its own HUD, so the guards leave the same screen regions out of both images rather than hide ours.
+`tools/art_compare.py`'s `HUD_MASK`, as (x0, y0, x1, y1) fractions of the frame, is the top bar (0, 0, 1, 0.07), the
+date plate hanging below it (0, 0, 0.13, 0.10) and the left button column (0, 0.10, 0.045, 0.44). `metrics()` and
+`histogram_distance()` apply it by default; `mask=()` gives the whole frame. A mask that leaves less than half the
+frame raises. `art_compare.py`'s art-log rows are named `<checkpoint-name>-hudmask` (as `art_checkpoint.sh`'s `-units`
+rows), since masking alone moves main's gameplay03 palette distance by about 0.027, more than the main + 0.02 tolerance:
+compare masked rows only with masked rows.
+
+- **Why.** #624 alone moved diorama02's whole-frame warmth 0.1409 -> 0.1465 and gameplay03's palette distance
+  0.3505 -> 0.3681 (988ad417 with only #624 cherry-picked, 3 WebGL `?shot` captures each). About half is the shorter
+  navy bar; the rest is the camera reframing to the new bar height (`TopBarInset` -> `CameraRig.TopInset`): with the
+  top 10% and the left column left out of both frames, diorama02 warmth still moves 0.1643 -> 0.1667.
+- **diorama02 warmth band: [0.087, 0.151]** (was [0.087, 0.145]). The top is promo 02's warmth measured the same masked
+  way, `metrics(promo/final/02-map-diorama.png, mask=HUD_MASK)` = 0.1509 (whole frame 0.1454, the old 0.145). Promo 02
+  has no HUD: on it the boxes are geometric, matching where our HUD sits in our diorama02 frame, and they remove a dark
+  backdrop band, part of the title plaque and some sea. The floor 0.087 has no recorded derivation (first in 9d28c722);
+  possibly 0.6 × the old whole-frame top. It is kept.
+- The other bars are unchanged: gameplay03 palette distance to promo 03 <= 0.44 and <= main + 0.02, diorama02
+  saturation <= 0.48, now all measured masked.
+
+## diorama02 warmth per material (#695, T77)
+The owner ruled on #695: **"Measure each material"**. Whole-frame warmth compares geography as much as colour: masked,
+promo 02 is about a quarter sea and 6% dark wood, our diorama02 an eighth sea and a third table, and that mix alone puts
+our frame 0.028 warmer while our materials' colours put it 0.015 cooler (T77's split of the 0.0133 gap). So diorama02's
+warmth guard now compares each material with the same material in promo 02.
+
+- **Classifier** (`tools/art_compare.py`, `classify()`): neutral (chroma (max - min) / max under 0.08), sea (B > R),
+  green (G > R), then the warm pixels by luma: wood under 0.30, land 0.30-0.55, sand from 0.55. The cuts sit between
+  hand-picked **region means** (wood 0.13-0.26, our table 0.18-0.20; hills 0.35-0.50; Negev sand 0.70-0.71), not in gaps
+  of the pixel histograms: ours has a valley at 0.25-0.50, promo 02's runs flat there and 0.55 sits on its ramp. "Sand" is
+  therefore bright warm ground: the Negev, the beaches, and sunlit hills and stone towns in promo 02. Sensitivity of the
+  sand verdict on main: FAIL for a sand cut of 0.45, 0.50, 0.55 and 0.60 (ours 0.287-0.307 against floors 0.288-0.313);
+  at 0.65 it passes by 0.001 (0.3206 against 0.3197).
+- **Mask.** The material guard uses `MATERIAL_MASK`: `HUD_MASK` plus the minimap (0.86, 0.62, 1, 1), the "Click the map"
+  plate (0, 0.92, 0.17, 1) and the map-layer legend (0.76, 0.94, 0.87, 1). Their navy is B > R, so unmasked they read as
+  sea: about 16% of main's sea pixels, which made it -0.1729 instead of -0.2000. The boxes apply to promo 02 alike; there
+  they cover open sand, a corner of the Dead Sea and some hills, no UI (without them on promo 02: sand 0.3811, sea
+  -0.2598, within 0.002). `HUD_MASK` and the other guards are unchanged.
+- **Bands.** The gates are sand and sea. Each band is promo 02's mean warmth (R - B) for the material, masked with
+  `MATERIAL_MASK`, plus or minus 20% of its size: the old whole-frame band [0.087, 0.145] was 40% of its promo anchor
+  wide, here centred on the promo. Sand [0.3037, 0.4556] (promo 0.3796), sea [-0.3119, -0.2080] (promo -0.2599). No band
+  is fitted to our output. Known limitation: promo 02's "sea" also holds its glass towers and solar fields (B > R): 9% of
+  its sea pixels (chroma under 0.2, warmth -0.048); without them its sea reads -0.281, so the sea band's centre is about
+  0.02 warmer than promo 02's water. A simple chroma cut does not separate them cleanly (it also drops shore and salt
+  pixels and keeps the bluest panels), so they stay in. The sand gate is the class mean. As a check, a pure-sand crop of the open Negev west of
+  Beersheba (ours (0.22, 0.80, 0.34, 0.93), promo 02 (0.08, 0.86, 0.28, 0.97), both over 99% sand) reads 0.344 against
+  promo 02's 0.468: the same direction, larger.
+- **Wood is printed, not gated.** It is not like-for-like: promo 02's dark backdrop lies mostly under `HUD_MASK`'s top-bar
+  box, so promo 02's "wood" is mostly the frame's walnut and terrain shadow (6% of the frame), while ours is mostly the
+  table (a third of it). Main reads 0.1126 against promo 02's 0.0908.
+- **Which image is gated.** Only the WebGL `?shot` (directly under the checkpoint folder): it is what the owner sees. The
+  editor renders (`editor/PC-diorama02.png`, `editor/Mobile-diorama02.png`) are printed as information. Every MATERIAL
+  line names its file.
+- **Fail-closed.** A gating material covering under 2% of the measured pixels of either image (about 37,000 pixels at
+  1920x1080) cannot be measured. A gate out of band is a failure, not a note: `art_compare.py` exits 3 and prints
+  `GUARD FAIL: <material> <value> vs <band>` for each; it exits 4 when a gating material cannot be measured (1 when no
+  screenshot matched a pose, 2 on a blank capture). `art_checkpoint.sh` stops on 1, 2 and 4 as on any error; on 3 it
+  finishes the checkpoint (its images are what the owner reviews), lists every `GUARD FAIL` line and exits 3.
+- **Whole-frame warmth** is still printed, as information only; `[0.087, 0.151]` (T74) no longer decides.
+- **Where main stands** (d031af36, 3 WebGL `?shot` captures, spread 0.0000): sand 0.2952 (-0.085, paler and less
+  orange) and sea -0.2000 (+0.060, less blue; 0.008 short of the band's edge): both outside their bands, so `art_checkpoint.sh` exits 3 on main until
+  the art follow-up on #695 lands. This section only sets the measure.

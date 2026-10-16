@@ -7,7 +7,91 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
 
 ## [Unreleased]
 
+### Fixed
+- Player builds work again (refs #680). Since #680 every `Build.*` failed with "no CRC for the bundle", because Unity
+  reads a bundle's CRC from its `.manifest` and the collection's bundles were copied into StreamingAssets without them.
+  The checks file is now written in the bundle cache and copied beside the shipped bundles.
+
+### Changed
+- Sourcing audit of the MVP-window office rows (#457): the First Government row no longer cites Wikipedia (the
+  Knesset's position records, the 14 May 1948 minutes, Ben-Gurion's diary page, the plenum records and the
+  Knesset's history pages cover every value); the Provisional Government keeps its two named Wikipedia lines for
+  the coalition, the State Council keeps one named Wikipedia line for the seat distribution, and the Third
+  Government keeps its named he.wiki lines. No values changed.
+- The Treasury is now shown as Money, כסף in Hebrew, on the top bar, the Budget screen and in the causes (refs #382,
+  R-MONEY-001; spec §1.2, owner, 15 October 2026, Q-MONEY-4 and Q-HUD-3). Debt and foreign currency stay in the sim
+  (D-C3). No upkeep yet: per Q-MONEY-2 it waits for Phase 3. No golden moves; the content hash does (the name is in
+  `content/model.yaml`), so an older save loads with the "different game content" warning.
+- An event option's Treasury cost the Treasury cannot cover is now borrowed at once, like every other payment, with a cause
+  naming the event (refs #681, R-MONEY-003). Before, the Treasury went below 0 until the deficit step, which reported the
+  shortfall as "to cover the deficit". End-of-turn totals are unchanged and no golden moves. The top bar's Treasury is
+  still cash minus debt, so it reads negative once anything is borrowed.
+- The unit figures' shirts are darker (0.9 of their paint), so the figures read darker than their earth base as demo2
+  T29's do, 0.5-0.9 of its luma at the Harel and plain 30 km looks and at gameplay03 (refs #645, #197), pinned by
+  `TheFiguresReadDarkerThanTheirBaseAsT29`. #559's shirt sample landed on the chest brace; the new test reads the shirt.
+- `bernadotte_assassination` says "about 250" Lehi members were arrested, not "about 200" (refs #516; owner, 15 October
+  2026): Ben-Gurion told the Provisional State Council 246 (184 + 62), and S/1315 gives 266 by 23 September (184 + 82).
+  Card text only: no golden moves, the content hash does, so an older save loads with the "different game content"
+  warning. A sensitive event: the change returns to the owner for sensitivity review.
+- A turn that could not run says what to do next (refs #622; maintainer, 15 October 2026): "Not done: The turn could
+  not run. Your orders were cleared. Give them again.", in English and Hebrew. End turn already clears the orders when
+  the turn fails. The Hebrew waits for the native reviewer (#564).
+- The International standing meter is named "International support" (refs #622; maintainer, 15 October 2026), on the
+  top bar, its tooltip and the "Why?" causes; in Hebrew תמיכה בינלאומית, the owner's word (Q-HUD-3, #375). The ids
+  (`intl_standing`, `hud.caption.standing`) stay. No golden moves; the content hash does (the name is in
+  `content/model.yaml`), so an older save loads with the "different game content" warning.
+- Event timing for monthly turns (refs #382; lands with the GDD cutover, Phase 2 PR 1; owner decisions of 15 October 2026
+  on #567): six war-period windows open on the monthly turn date before their decision (`idf_founding`,
+  `jerusalem_military_government`, `latrun_proposal`, `operation_horev`, `elections_1949`; `operation_horev` also lets
+  `sinai_withdrawal` and `rhodes_talks` fire again). `ten_days`, `bernadotte_assassination`, `operation_hiram`,
+  `jerusalem_ceasefire` and `sinai_withdrawal` are rewritten as decisions during or after the fact; Hiram loses its
+  "protest to the UN" option. `altalena` opens on 15 June 1948 without the Kfar Vitkin clause (Q-CUT-7). The owner
+  re-reviewed the four changed sensitive events on 15 October 2026 ("Approve all 4", #600).
+  Sensitive events may no longer raise food, morale or international standing either (Q-EFX-2): the gains in `altalena`,
+  `bernadotte_assassination` and `reparations_claim` are removed, and each of those options carries a small cost in
+  another resource instead (Q-EFX-3, design values; the reparations claim's is Money, #600). The event-gap ruling is restated in months: 6, and 2 in wartime
+  (Q-CUT-8). Every golden moves; the cutover re-pins them once.
+
 ### Added
+- Tal's (@pixelrenderai-hash) 23 single-building Tripo models from #507, imported for the strategic map (refs #659, step
+  1): `unity/Assets/Art/Settlements/Prototype/Models/b*`, outside every `Resources/` folder, meshes compressed with no
+  animation, rig, tangents or Read/Write, colour maps committed and crunched at 512 px; `BuildingModelImportTests` pins
+  these settings. The texture paths from Tal's machine inside each FBX are blanked. Nothing references the models yet,
+  so the game does not change and the WebGL build ships the same assets (its `.data` file differs by 56 bytes).
+- The 1948 Collection's 31 non-building models by Tal (@pixelrenderai-hash, from #507), streamed after the first frame
+  (refs #664, #663): 12 people, 13 vehicles, ships and aircraft and 6 animals in `unity/Assets/Art/Collection/`, slimmed
+  by `tools/slim_collection.py` (owner, 15 October 2026: "Plain git, slimmed first"): a far mesh of at most 1,500
+  triangles (4,500 for vehicles) and a near mesh of at most 8,000 per model, the idle clip kept on the 13 models that have one, colour maps
+  crunched at 512 px. Every `Build.*` player build makes three AssetBundles into `StreamingAssets/collection/`, and
+  `CollectionStream.Request(id, detail, callback)` loads a model after the frame that asks for it. The bundle build
+  writes each bundle's Unity CRC, size and SHA-256 to `collection-checks.txt`; the loader passes the CRC to Unity and,
+  on disk, opens only a file that matches, so a missing or damaged bundle (even one byte inside its data) logs one
+  warning and the map runs on without the models, and an exception from the source or a caller's
+  callback is caught for that request alone (one warning) while the stream keeps serving. The FBX files carry no path
+  from the authoring machine: the tool exports them without material or texture references, overwrites the export path
+  and refuses any file with a home, temp or session path left. Nothing places them yet (#665-#670), so the first
+  download does not grow. `CollectionImportTests` and `CollectionStreamTests` pin the import settings, the bundles and
+  the fail-open paths.
+- `title_he_form: feminine` in `people.yaml` (refs #558): a person so marked takes the offices' feminine Hebrew title
+  (`title_he_f`, שרת העבודה) through `Office.TitleHeFor`, sourced in `biography_sources.title_he_form`. The loader
+  refuses any other value, a blank, a missing source, and a marked person holding an office without `title_he_f`.
+  Golda Meir is marked; she is the only woman in the Knesset's government position records for 1948-1956 (KNS_Person,
+  checked 15 October 2026). Display only: no golden moves.
+- Portraits for eight 1948-1951 office holders who had none (refs #6; owner, 15 October 2026: "Yes, source more"):
+  Lavon, Eshkol, Dinur, Burg, Naftali and the deputy ministers Efrati, Shari and Kahana, from Knesset Archives member
+  portraits under CC BY-SA 4.0, each cropped and downscaled to 512 px tall with no upscaling and credited in `NOTICE`.
+  Geri and Pinkas still have none: no single-subject photograph of them is under an accepted licence. Yadin keeps his
+  lettered plate (owner, 15 October 2026: "Keep the plate"): photographs of him under accepted licences exist, but
+  they are 1977-1981 Knesset portraits or 1950 Meitar Collection group shots, held back for era and composition.
+- A person's sign-off beside a status (refs #375, #564, #611; owner, 15 October 2026: "Yes, humans only"): every status
+  row takes `reviewed_by` (the reviewer's GitHub handle, never an email) and `reviewed_on` (the day), both or neither.
+  The sim's loader, the map's readers (localities, the 1945 populations, units) and `tools/routes_1948.py` refuse a
+  half, blank or malformed sign-off. `scripts/oss/reviewed_by_guard.py`, in CI's Changelog job, fails a pull request in
+  which a commit with an AI co-author trailer adds, changes or removes either line, or a person's `reviewed_on` is
+  after their commit; it fails closed. It also fails a pull request in which such a commit edits any field of a signed
+  row, the id included, until a person signs the row again or removes its sign-off (owner: "Block it in CI"). The review
+  queue leaves signed-off rows out and counts them.
+  `docs/HISTORIAN_REVIEW.md` records the reversal of its old "no reviewed_by keys" rule. No row is signed off yet.
 - Hebrew names wait for a person (refs #582, #564; owner, 15 October 2026): every Hebrew name #582 added, which only an
   AI agent checked against its sources, now carries `*_review: agent-checked` (`title_he_review`, `title_he_f_review`,
   `name_he_review`, `body_he_review`; 100 flags: offices, parties, governments, legislatures, the game settlements and
@@ -20,6 +104,14 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
 - GDD v0.1 Phase 1, a dev flag and the score (refs #380): `?mvp=1` in the WebGL page's URL loads the content through
   `MvpSlice.Overlay` (the GDD slice) for playtests. The golden check and the smoke run ignore it, and a slice game never
   reads, sets aside or writes the player's autosave (and has no New Game). In the GDD loop the top bar shows the score.
+- The top bar at promo 03's height (HUD round 2, part 3, refs #398): 70 px, 6.5% of a 16:9 frame (it was 96, 8.8%), with
+  the date plate hanging below it as promo 03's does, two-line meters (Security's level beside its caption), New Game a
+  round icon named in a tip, and a smaller End Turn. With the screen buttons in the left column (#602) the bar needs about
+  248 px less, so 16:10 and 4:3 windows keep the one-row bar, and 5:4 the stacked bar with its icons. The decision card's
+  backdrop reaches up to the bar at every tier, so no strip of map stays live under a card. The bar's small text (captions,
+  Security's level, the attention line, the plate's turn and date) stays at least 12 px on screen at small windows, the owner's floor: it is set
+  larger as the panel scales down, and the bar takes a taller tier when it needs the room. Presentation only: no golden
+  moves.
 - The left icon column (HUD round 2, part 2, refs #398): the four screens' buttons (Cabinet, Budget, Defence, Why?) move
   from the top bar to promo 03's column of round icons at the left edge, icon-only, each named in a tip beside it on hover
   and on keyboard focus. No new action. Tab still runs Cabinet, Budget, Defence, Why?, New Game, End Turn; the column stays
@@ -72,6 +164,13 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   `Train` borrow what the Treasury lacks, as map actions do. `mvp-slice` moves (the reference player builds Mefalsim by
   15 March 1949, and the golden now runs to that date); the legacy goldens and `scenario-mvp-absorb-first` do not.
   The Unity order queue (`SimBridge`) takes both orders, one per unit.
+- Map: every army token stands as in demo2 T29: the figures shoulder to shoulder on a round, dark, mottled earth base
+  built on the terrain's own triangles (it follows the ground on any hill, no mesa, no gap downhill), a bright white
+  ring on the ground just outside it, and its side's flag, drawn unlit, on a pole at the base's back edge, turning about
+  the pole to face the camera (owner, 15 October); the figures at 1400x, 1.8 times a block (owner, 14 October; refs
+  #197). `units_1948.yaml` gives each unit a `side`; only Israel's flag is drawn, from the 1948 proclamation, and other
+  sides fly none until a sourced flag exists. The showcase trio stands off the routes in a kit clearing. Aircraft and
+  ships are unchanged.
 - Desktop release builds from the Mac (refs #54; Phases 0-1 of the plan in PR #482): `Build.LinuxMono` and
   `Build.WindowsMono` build the Linux and Windows x64 players on Mono (decisions O7, O8) and put the committed IL2CPP
   setting back afterwards, and
@@ -83,6 +182,21 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   it. It replaces the border skirt's flat tan slab and the sea past the map's edge. At 16:9 only the overview shows it (the
   camera fit of #174 keeps it off screen wherever the view is no wider than the map: below about 106 km at 16:9, 53 km
   at 32:9; a portrait window never shows it); one draw call, no shadow pass, no golden moves.
+- Map: a transit camp the player builds (from 1950) is drawn as a ma'abara instead of a marker box: rows of white and
+  khaki canvas tents with a few tin or canvas huts, a long communal hut and, in some camps, a water tower, on the
+  nearest free ground in its own hex (drawn as its box when the hex has none). Built when the camp is placed, not at map
+  build; the tent/hut share is a parameter for a staged look later. The camp looks worn: tents sag between their poles,
+  crease and lean, with dusty skirts, bleached roofs, patches and open door flaps; the tin huts are loose, rusting sheets,
+  some lifted or missing; washing lines and bundles stand between the tents. Presentation only (refs #32).
+- GDD v0.1 Phase 1, the first new yishuv objective and the score (refs #379): `content/objectives.yaml` holds `first_new_yishuv`, completed when Mefalsim is built, with Mefalsim's founding date
+  (12 June 1949) as its reference date, and `content/events/first_new_yishuv.yaml` is its card. At the end of the turn the
+  site is built, the objective is recorded once and scores 100 points plus 5 a calendar month before history, capped at 60
+  (the owner's D-B6 and D-B2), and the card fires once; it never fires in the legacy loop (R-OBJ-001 to R-OBJ-003). An
+  event's new `objective` key names its objective; an unanswered card resolves without an RNG draw. The point values are
+  `rules.yaml` design values (`mvp.objective_points`, `objective_bonus_per_month`, `objective_bonus_cap`), read at the
+  turn's start date. `hash1950` (`ad806776`), `hash1952` and `mvp-end` (`0f54dc51`) move: the reference player builds
+  Mefalsim on 15 June 1949, so the objective completes on time for 100 points and its card fires and is answered;
+  `smoke5` and the three scenarios do not move.
 - GDD v0.1 Phase 1, training (refs #377), behind the `systems.loop` switch: `Train` sends a city's civilians without work
   to basic training in a military camp (recruits, a count) or pioneer training in a Hakhshara (halutzim, movable units at
   the city's hex), paid from the Treasury, with any shortfall borrowed as debt (owner decision, 15 October 2026);
@@ -327,6 +441,63 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   +0.9 ms at the gameplay zoom), not yet on an idle one.
 
 ### Changed
+- **The GDD cutover (GDD Phase 2 PR 1, refs #382).** The real game now plays the GDD v0.1 loop on monthly turns, from
+  15 May 1948 to the game's end on 15 January 1952, 44 turns (owner decisions D-B1, D-E1, D-E5):
+  - `content/eras.yaml` sets `systems.loop: gdd` and `content/rules.yaml` sets `turn_lengths` all month (R-LOOP-001,
+    R-TURN-001) and `mvp.end: 1952-01-15` (R-LOOP-004; the game is then over, `mvp_ended`).
+  - The Phase 1 balance numbers move into `content/` unchanged as labelled design values (owner, Q-CUT-1): new
+    `content/cities.yaml` and `content/unit_types.yaml`, the rules' `mvp:` block and the GDD orders' Attention costs, each
+    tagged `# DESIGN VALUE` and listed by `DesignValuesTests` (R-LOOP-005). `attention_per_turn` stays 4 (Q-CUT-5); inertia
+    and the soft-event cap stay per turn (Q-CUT-6). The overlay `MvpSlice`, its `?mvp=1` dev flag (#598) and the `mvp-slice` golden are retired: the real game is the GDD game, and a game started under it autosaves and has New Game again.
+  - Event windows re-timed for monthly turns (#567): `idf_founding`, `altalena` (15 June 1948, sourced; Q-CUT-7),
+    `jerusalem_military_government`, `latrun_proposal`, `operation_horev` and `elections_1949` open on the 15th on or
+    before their decision (R-TURN-002), so `sinai_withdrawal` and `rhodes_talks` fire again. The gap rule is restated in
+    months: 6, and 2 at full war (Q-CUT-8, R-TURN-003).
+  - Old saves are refused, said once in English or Hebrew: a save from before the cutover as made under earlier rules
+    (R-SAVE-001), and one from an unknown ruleset as made by a newer version (R-SAVE-002).
+  - The golden runs play the reference player, and every golden moves once: `hash1950` `f97e9f81`, `hash1952` and the new
+    `mvp-end` `75d38299`, `smoke5` `85191d48` (five turns end 15 October 1948), and the three scenarios
+    (docs/determinism.md). The browser smoke answers cards while the turn's Attention lasts. The Defence screen shows
+    monthly turns on every level. The arrivals line reads "wait for homes".
+  - Every new game now opens on a card (One Army, 15 May 1948), so #620's wait under the start screen covers a new game
+    too, and `GameRoot.Shutdown` disposes the card first, so New Game does not load the event photo catalog for the
+    game it closes (refs #592, #321). Without a start screen (the automated runs) the visible card loads it at once.
+  - A refused autosave whose code has no string falls back to the short localised reason, so the start never fails on
+    it; `mvp.end` must fall before the last era's end, so the game always ends as `mvp_ended`.
+- The 1948 Arab villages and towns on the map are dense packs of small stone houses with lanes between them (visual
+  gap S1, refs #32): each Arab locality is laid out on the village plot lattice, as Lod and Ramla are, with smaller
+  one-room houses (3.8-5.4 m, still at 100x), more two-storey houses in the core, roof rooms, and terraces under the
+  hill houses that stand on a slope. A village keeps its mosque, now a one-storey hall with a short square minaret; the
+  domed mosque with its tall minaret stays with the Arab towns. The median Arab locality draws 11 houses (main 5), in
+  the same merged tile meshes (64 draws). Presentation only (`docs/visual-v1.md`, "Arab villages: dense, terraced cores").
+- Map: the ma'abara kit (Beri's, #557; refs #32) stands at a town's edge, keeps clear only of the unit tokens present in
+  its time, and is never smaller than a camp. A camp's centre is now looked for on rings 450 m apart, not 1.8 km, so
+  Degania Alef's camp finds the free ground at the town's edge and is a kit, not a box. A camp keeps off only the unit
+  tokens whose window runs to its own date or later (owner, 15 October 2026: "Yes, date-aware"). Camps are built from
+  1950, so Rosh Pinna's camp is 15 tents and 3 huts again, not the box the 1948 Operation Brosh token left it. A camp
+  has at least 6 plots, one of them a hut, or its search goes on further out in its hex, and it is its box only if
+  nowhere in the hex has room (owner, 15 October 2026: "Yes, min 6 plots + a hut"). Gaza's edge has room for 4 tents
+  only, so it stays a box. Built on 26 August 1950: 17 camps of 25 are kits (was 15), and Ein Harod's is smaller (6
+  tents and 2 huts, was 10 and 2). Every structure still stands wholly inside its hex. No golden moves.
+- Tel Aviv's White City (visual gap S2, refs #31; owner rulings on #652, 15 October 2026). Its blocks are fewer and
+  larger: 27, at 1.67 times main's width (main drew 55). They stand four to eight storeys, in tiers of tall and low blocks,
+  with a height spread of 0.31. Each has ribbon windows along both long sides, a balcony band on every upper storey and a
+  flat roof terrace behind a parapet. A quarter stand on pilotis. 26 palms grow in the streets and in the open plots
+  between the blocks. Tel Aviv's census floors fall to 24 buildings and 24.5% / 21% cover, per the ruling "Lower floor to
+  ~30, wider blocks"; every other town's floor stays. All of it is in Tel Aviv's own kit mesh (no new draw), so a model that
+  replaces the town (#507) hides it whole. Haifa's Hadar keeps its blocks, and `Kit.shader` is not changed. Presentation
+  only.
+- Sea round 3, the surf towards lace (refs #388): beyond the swash line, at least one broken white breaker now stands
+  clear in the surf at the gameplay zoom, where there was one swash line and a smooth band (promo 03 shows 2-4 broken
+  lines; that gap is read again after #519's grade). The surf zone widens from 900 m to 1.8 km, the breakers stand 450 m
+  apart (300 m before) and the foam is whiter; a 200 m lace net, behind a new `foam` toggle, breaks each crest on its own
+  and fades to the old mean at the overview. All of it is in the water's own pass; the terrain function is unchanged.
+- The hill olives are larger and fewer (visual gap L1, refs #34; owner, 15 October 2026: "~1.7x bigger, fewer
+  trees"): the olive clumps' trees on the hills and mountains and the hill scatter's single olives are 1.7 times the
+  size and 0.6 of them are kept, so their crowns match promo 03's hand-marked crown size at gameplay03 and cover about as
+  much of the hills, with fewer instances. The olive clumps now keep off the hex-edge midpoints as the scatter does
+  (owner: "Yes, add the guard now"). The scrub, the plain's and the valleys' olives, the mesh, the colours and the
+  cypress rows are unchanged.
 - The map's region files (the 1948 sub-districts, the 1949 armistice lines, the 1948-49 control areas) are read
   from baked runtime forms at boot instead of being parsed as YAML (`tools/regions_bake.py`, refs #321), as the
   localities and the route paths are. The sub-districts are read once, for the camps and the region layers. A stale,
@@ -388,6 +559,10 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
 - Map roads read as wide, pale dirt tracks at the gameplay zoom, as in promo 03 (refs #35): 420 m wide (was 300 m), cream
   dirt varied in patches, softer verges. The pale band is a median 9 px at gameplay03 (was 4) and 19 px at 30 km (was
   7). The route ribbons are re-baked; no route was added.
+- The map's colour grade is retuned towards promo 03 (refs #38, #391): crisper, with more contrast and darker shadows,
+  near-neutral split toning and slightly less saturation, so the land keeps main's warmth and reads tan rather than rose;
+  the vignette stays as it was. At the gameplay pose the land's contrast comes to the promo's; the sea stays blue, a little
+  darker than promo 03's (the owner's decision), and the border stripe stays near the owner's blue. Presentation only.
 - The trees are warm olive-brown instead of bright green, like the groves in promo 03 (refs #34): citrus groves, olive
   crowns, palms and cypresses. Only the leaf colours change; the fruit, meshes and frame cost are the same.
 - Map: settlement quick wins (refs #31). The White City's blocks are lime white, with a solid-parapet balcony on each
@@ -508,6 +683,27 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   It decodes to the same bytes, so the terrain is unchanged (#44).
 
 ### Fixed
+- Map labels (refs #599): close over Jaffa's harbour the "Tel Aviv" and "Jaffa" pills no longer read swapped. Every pill
+  is now nearer its own settlement's marker than any other visible marker (by more than 4 px), in every placing pass,
+  since two sprawling kits' screen rectangles overlap and a spot against one's edge could sit by the other town. A city
+  keeps its name: when every spot round its sprawl fails it may hang just under its marker point, its last pass ignores
+  the 1948 localities' markers (Silwan is 1.5 km from Jerusalem), and a kit reaching behind the camera at the closest
+  zoom places its pill round the marker box instead of hiding it.
+- Screenshot runs (`?shot`, `-shot`; `tools/art_checkpoint.sh`) show the map again: since the GDD cutover (#600) the
+  opening card, One Army, covered it in every capture. The card, its scrim and "Decision waiting" now stay hidden in a
+  screenshot run, as the units do (`EventCardPresenter.HiddenInCaptures`); normal play and the smoke run still show it.
+- In the Hebrew UI a refused order names its kind in Hebrew (refs #595; owner, 15 October 2026: "Yes, translate them"),
+  for example "לא ניתן לזהות מדיניות", not "policy לא מוכר". Each kind is a string, `order.kind.<kind>`, in both
+  strings files; English reads as before ("Unknown policy"). The Hebrew words wait for the native reviewer (#564).
+- An autosave that cannot be continued (refs #631, #622) no longer shows the sim's English reason or a replay's exception
+  message to the player: the note always gives the short reason "the file could not be read or replayed", in English and
+  Hebrew, and the full exception goes to the log. A replay that throws keeps that exception, with its stack, as the
+  SaveException's inner exception. No save format change.
+- Kit faces in shadow keep their own colour (refs #32): `Kit.shader`'s ambient takes the sun's warmth where the sun does
+  not reach (a bounce term, 0.6 of it in full shade, at the trilight's own brightness), so a shaded wall, roof flank or
+  tree crown reads as a darker version of itself and not blue-grey under the grade's teal shadows (Safed at 6 km, shaded
+  wall hue 100 to 44 degrees, saturation 0.09 to 0.27, same value). Terrain, water and every other shader are unchanged;
+  sunlit kit faces get a little warmer. `KitTests.AKitFaceInShadowKeepsItsOwnHue` pins it. No golden moves.
 - UI text from Jeremy Hoover's review (refs #622): a refused order no longer shows a content id or an exception's
   message after "Not done:" ("Unknown policy", "The turn could not run", in English and Hebrew); both stay in the log.
   The six Title Case labels are in sentence case ("Public support", "International standing", "Foreign currency", "End

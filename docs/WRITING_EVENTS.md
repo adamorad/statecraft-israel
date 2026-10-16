@@ -38,6 +38,7 @@ schema too, or that test fails. Keep the comment when you copy a file.
 | `to` | no | Day the window ends (exclusive). Must be after `from`. Leave it out for an open window. |
 | `conditions` | no | Indicator bounds that must hold when it fires. See below. |
 | `requires` | no | Fires only after another event was resolved with a given option. See below. |
+| `objective` | no | Makes the event the completion card of an objective in `objectives.yaml`, which must name this event as its `card`. It fires only once the objective is completed (GDD loop only), and has exactly one option. See `docs/gdd/objective-card.md`. |
 | `options` | yes | One or more options. See below. |
 | `sources` | no by the loader, yes by the rules | A list of `{ url, checked }`. See below. |
 | `status` | no (default `draft`) | The review status. See below. |
@@ -74,8 +75,9 @@ Write plain description. Do not put words in anyone's mouth: no invented quotes
 Tags are free-form, but these four are sensitive (checked without regard to case): `holocaust`, `terror`, `massacre`,
 `war-casualties`. An event with any of them:
 
-- cannot give a positive `treasury` or `fx_reserves` delta in any option (the loader refuses: it would reward the
-  atrocity);
+- cannot give a positive delta to any resource in any option: `treasury`, `fx_reserves`, `food_supply`, `morale`
+  (standing for Social cohesion) or `intl_standing` (standing for International Support). The loader refuses: it would
+  reward the atrocity. Owner decision of 15 October 2026 (Q-EFX-2, "Extend it"); until then the rule covered money only;
 - needs `status: sensitivity-reviewed` before any build is shared. That status is set by the maintainer, not by you.
   Submit it as `fact-checked`. `Statecraft.Cli --release-gate`, the `-shareable` build and `tools/package_release.py`
   refuse to release while any sensitive event is not `sensitivity-reviewed`, and a test requires every sensitive event
@@ -92,9 +94,11 @@ otherwise picks at random. With no `office`, a middling competence of 5 is used.
 ### from and to
 
 The window is half-open: the event can fire from `from` up to, not including, `to`. It fires on the first turn that
-overlaps the window. A turn is a week, a month or a quarter, depending on the period, so a window shorter than a turn can still
-fire, late. Put a comment above `from` saying why you chose the date, as the example does. The loader only requires
-`from`, and that `to` is later than `from`.
+overlaps the window. Turns are a month long and end on the 15th (15 June 1948, 15 July 1948, and so on, to the game's
+end on 15 January 1952), so a window shorter than a turn can still fire, late. For a decision card, open the window on
+the 15th on or before the historical decision, so the card reaches the player on the turn before it (R-TURN-002;
+`EventRetimingTests` pins each card's turn). Put a comment above `from` saying why you chose the date, as the example
+does. The loader only requires `from`, and that `to` is later than `from`.
 
 ### conditions
 
@@ -176,6 +180,15 @@ flag: `*_review: agent-checked` while only an AI agent has checked the name agai
 removes the line once they have reviewed the name (#564); a blank value is an error, not a review. It does not change
 the row's `status`.
 
+### reviewed_by and reviewed_on
+
+A person's sign-off beside `status`: `reviewed_by` is the reviewer's GitHub handle (never an email), `reviewed_on` the
+day, `YYYY-MM-DD`. Both or neither; the loader refuses a blank or malformed value. **Only the reviewer writes them**, in a
+commit of their own: never add, change or remove them yourself on someone's behalf, and an AI agent never does
+(`scripts/oss/reviewed_by_guard.py` fails such a pull request; owner, 15 October 2026, #375). An agent may not edit any
+field of a signed row either, until a person signs it again ("Block it in CI", owner, 15 October 2026). See
+[HISTORIAN_REVIEW.md](HISTORIAN_REVIEW.md#sign-the-row-off).
+
 ## What the loader rejects
 
 Errors are printed as `file: field: message`. These are the messages you are most likely to see:
@@ -198,9 +211,12 @@ Errors are printed as `file: field: message`. These are the messages you are mos
 | `at most one option can be historical` | Two options have `historical: true`. |
 | `hard anchor needs a historical option` | `anchor: hard` and no option is `historical`. |
 | `unknown target` | An effect `target` is neither an indicator nor `treasury` or `fx_reserves`. |
-| `sensitive events cannot reward` | A sensitive-tagged event with a positive `treasury` or `fx_reserves` delta. |
+| `sensitive events cannot reward` | A sensitive-tagged event with a positive `treasury`, `fx_reserves`, `food_supply`, `morale` or `intl_standing` delta. |
 | `must be 1-5` | `set_rung` outside 1 to 5. |
 | `unknown policy` | `set_policy` names a policy that does not exist. |
+| `unknown objective` | `objective` names an objective that is not in `objectives.yaml`. |
+| `has another card` | `objective` names an objective whose `card` is a different event. |
+| `an objective's card has exactly one option` | An objective's card has more than one option. |
 | `must be a list` | A list field (such as `tags:`) written with no value. |
 | `an event cannot require itself` | `requires.event` is the event's own id. |
 | `requirements form a cycle` | Event A needs B and B needs A, directly or through others. |

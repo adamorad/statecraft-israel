@@ -47,6 +47,13 @@ rules:
     source: "Dreamina (dreamina.capcut.com), model GPT Image 2.5, 2026-10-12, 1536x864 as downloaded, with promo/final/03-gameplay-1936.png as the style reference; prompts in promo/start-screen/prompt-b.txt and -c.txt"
     status: verified
     note: "Decision D1: AI-only images CC0 / no rights claimed. Two options for the start screen; C is used. Decision D-D decided (owner, 2026-10-14, docs/oss/DECISIONS.md): approved for free, non-commercial distribution and CC0 marking; before any paid release the owner confirms commercial rights for the plan used or replaces the image."
+  - glob: "unity/Assets/Art/Settlements/Prototype/Models/b*"
+    licence: CC0-1.0
+    ai_generated: true
+    source: "Tripo Studio (tripo3d.ai), paid Max plan, account pixelrenderai, made 10-13 October 2026 from concept images generated in the same studio, by Tal (GitHub @pixelrenderai-hash, PR #507). Building modules decimated to 3,608-8,000 triangles in Blender 4.4; colour maps made at 1024 px and committed at 512 px (2x2 box average, JPEG quality 90, issue #659; owner ruling of 15 October 2026: plain git, only what ships, no masters). The masters and per-model records (prompts, task ids, credits) are kept outside the repository. The texture paths from the author's machine inside each FBX are blanked to same-length placeholders (owner ruling, 15 October 2026, PR #675)."
+    status: verified
+    artist: "Tal (@pixelrenderai-hash)"
+    note: "The 23 single-building models of PR #507, brought over on their own in issue #659 (step 1). Tripo Terms of User Agreement (last updated 11 July 2025), s. 5.2.2: paid users have all rights in their Outputs, including to distribute and license them; s. 3.2 allows commercial and non-commercial use. CC0 / no rights claimed, as for the other AI-only assets (D1). Decided (owner, 2026-10-15, issue #659): 'they are ok to use'."
   - glob: "docs/sources/declaration-1948/*.txt"
     licence: Public-Domain
     source: "The Declaration of the Establishment of the State of Israel: the Hebrew as published in Iton Rishmi (Official Gazette) No. 1, 14 May 1948, via https://he.wikisource.org/wiki/הכרזה_על_הקמת_מדינת_ישראל; the English translation via https://avalon.law.yale.edu/20th_century/israel.asp, checked against the Israel MFA's https://www.gov.il/en/pages/declaration-of-establishment-state-of-israel (all 2026-10-12)"
@@ -74,6 +81,10 @@ rules:
   - glob: "docs/images/build-*.jpg"
     licence: CC-BY-4.0
     source: "Real screenshots of the game's own WebGL build, dated in the README caption; map derived from Copernicus DEM, portraits public domain or CC0, the event-card photograph CC BY 4.0 with its credit line in the picture (Meitar Collection / National Library of Israel; NOTICE), the start screen's painting AI-generated (CC0, its row above)"
+    status: verified
+  - glob: "docs/images/hero-engine-*.jpg"
+    licence: CC-BY-4.0
+    source: "In-engine render of the game's own map with no interface (no AI): MapCapture.Promo (unity/Assets/Editor/MapCapture.cs) with -extraPose hero_c:34.76:32.06:36000:12 on the Mobile quality tier (the WebGL tier), 1920x1080, Unity 6000.3.25f1, commit 98515c5, 2026-10-15; saved as JPEG (quality 84). Map derived from Copernicus DEM. The website's home page hero"
     status: verified
   - glob: "docs/images/build-gameplay.*"
     licence: CC-BY-4.0
@@ -561,4 +572,11 @@ rules:
     adapted: "graded and cropped"
     commons: "Public domain; PD-USGov, NARA-cooperation"
     note: "Event israel_bonds. Original 3000x2393, SHA-1 990a79527ad34e1296129d1956bad1e602127db8 (https://upload.wikimedia.org/wikipedia/commons/5/53/Photograph_of_President_Truman_in_the_Oval_Office%2C_evidently_receiving_a_Menorah_as_a_gift_from_the_Prime_Minister_of..._-_NARA_-_200318.jpg); made by tools/event_images.py (crop [0.5, 0.58, 1.0]). US federal work (Abbie Rowe, National Park Service photographer at the White House), public domain in the US. Licence verified 2026-10-11 via the Commons API (licence review), with the owner's sign-off 2026-10-11 (in session, via controller). Re-cropped 2026-10-13 to the centred card's 16:9 media header (at most 960x540) from the same original, the same crop centre and width; only the crop changed, the credit and licence are as before."
+  - glob: "unity/Assets/Art/Collection/*"
+    licence: CC0-1.0
+    ai_generated: true
+    source: "Tripo Studio (tripo3d.ai), paid Max plan, account pixelrenderai, made 10-13 October 2026 from concept images generated in the same studio, by Tal (GitHub @pixelrenderai-hash, PR #507 at 3ef0a7a5a36887aee7a24fd11ddf722507695f3c): the 31 non-building models of The 1948 Collection (12 people, 9 road and rail vehicles, 4 ships and aircraft, 6 animals). Slimmed for the repository by tools/slim_collection.py (Blender 5.2.2, issue #664): a far mesh of at most 1,500 triangles (4,500 for vehicles, ships and aircraft) and a near mesh of at most 8,000 per model, the near mesh keeping its rig and only the idle clip on the 13 models that have one, every other clip dropped; colour maps 1024 px resized to 512 px. The masters, #507's full-detail FBX files and the per-model records (prompts, task ids, credits) are kept outside the repository."
+    status: verified
+    artist: "Tal (@pixelrenderai-hash)"
+    note: "Issue #664 (umbrella #663). Tripo Terms of User Agreement (last updated 11 July 2025), s. 5.2.2: paid users have all rights in their Outputs, including to distribute and license them; s. 3.2 allows commercial and non-commercial use. CC0 / no rights claimed, as for the other AI-only assets (D1). Decided (owner, 2026-10-15, issues #659 and #663): 'they are ok to use'. Owner ruling 2026-10-15 on repository size: plain git, slimmed first, no masters and no Git LFS. The prefabs, controllers and materials beside the models are under the code row of LICENSING.md."
 removed: []

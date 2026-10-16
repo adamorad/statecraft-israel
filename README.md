@@ -10,6 +10,7 @@ https://github.com/user-attachments/assets/56571db8-446b-444b-8db9-fce57dac53a7
 [![Assets license: CC BY 4.0 / content CC BY-SA 4.0](https://img.shields.io/badge/assets-CC%20BY%20%2F%20BY--SA%204.0-lightgrey.svg)](LICENSING.md)
 [![Unity 6000.3.25f1](https://img.shields.io/badge/Unity-6000.3.25f1-black.svg)](unity/ProjectSettings/ProjectVersion.txt)
 ![Status: playable 1948–1951 prototype](https://img.shields.io/badge/status-playable%201948%E2%80%931951-orange.svg)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00.svg?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/eyalgolan)
 
 **A turn-based grand-strategy game about governing Israel. You are the prime minister on 15 May 1948. The ministers are the real ones, the map is real, and every historical fact comes with a source.**
 
@@ -40,7 +41,7 @@ The game design of record is now [docs/GDD.md](docs/GDD.md) (12 October 2026): m
 ## What it looks like today
 
 <p align="center">
-  <img src="docs/images/build-gameplay.webp" alt="Real gameplay, 22 to 29 May 1948: a pan across Tel Aviv, Jaffa and the coastal plain, a click on a hex that opens its panel, the One Army decision, and End Turn moving the date to 29 May" width="820">
+  <img src="docs/images/build-gameplay.webp" alt="Real gameplay, 22 to 29 May 1948: a pan across Tel Aviv, Jaffa and the coastal plain, a click on a hex that opens its panel, the One Army decision, and End turn moving the date to 29 May" width="820">
   <br><em>Real gameplay, build 0.1.0, 2026-10-13, commit f93fd5e.</em>
 </p>
 <p align="center">
@@ -89,7 +90,7 @@ The live tracker is [#374](https://github.com/eyalgolan/statecraft-israel/issues
 flowchart LR
   V["Visual v1"]:::done --> P0["0 · Decisions"]:::now
   P0 --> P1["1 · Vertical slice"]:::now
-  P1 --> P2["2 · Monthly turns"]:::next
+  P1 --> P2["2 · Monthly turns"]:::now
   P2 --> P3["3 · Cities"]:::next
   P3 --> P4["4 · Pioneers"]:::next
   P4 --> P5["5 · Units and combat"]:::next
@@ -103,13 +104,13 @@ flowchart LR
 | Phase | What it adds | Status | Issue |
 |---|---|---|---|
 | 0 | Owner decisions on the open GDD items | In progress: the Phase 1 decisions are made | [#375](https://github.com/eyalgolan/statecraft-israel/issues/375) |
-| 1 | A first slice behind a switch: one city (Tel Aviv), training, one new settlement and one objective card | In progress: 2 of 8 PRs merged | [#374](https://github.com/eyalgolan/statecraft-israel/issues/374) |
-| 2 | Monthly turns for the real game, and the five resources | Next | [#382](https://github.com/eyalgolan/statecraft-israel/issues/382) |
+| 1 | A first slice behind a switch: one city (Tel Aviv), training, one new settlement and one objective card | In progress: 6 of 8 PRs merged | [#374](https://github.com/eyalgolan/statecraft-israel/issues/374) |
+| 2 | Monthly turns for the real game, and the five resources | In progress: monthly turns and Money are done | [#382](https://github.com/eyalgolan/statecraft-israel/issues/382) |
 | 3 | Every city, with housing, jobs and immigrant absorption | Later | [#383](https://github.com/eyalgolan/statecraft-israel/issues/383) |
 | 4 | Pioneers, building sites, roads and railways | Later | [#384](https://github.com/eyalgolan/statecraft-israel/issues/384) |
 | 5 | Military units, movement and combat | Later | [#385](https://github.com/eyalgolan/statecraft-israel/issues/385) |
 | 6 | Settlement control, under [docs/CONTENT_POLICY.md](docs/CONTENT_POLICY.md) | Later | [#386](https://github.com/eyalgolan/statecraft-israel/issues/386) |
-| 7 | Ministers, events and the full 48-turn game | Later | [#387](https://github.com/eyalgolan/statecraft-israel/issues/387) |
+| 7 | Ministers, events and the full 44-turn game | Later | [#387](https://github.com/eyalgolan/statecraft-israel/issues/387) |
 
 ### Other tracks
 
@@ -170,7 +171,7 @@ You need Unity **6000.3.25f1 (6.3 LTS)** with Web Build Support; the exact versi
 
 This project is built with heavy AI assistance, disclosed here using itch.io's categories:
 - **Code:** written with AI coding agents and reviewed through tests and review gates.
-- **Graphics:** the concept and promo images in `promo/` are AI-generated, as is the start screen's painting, and the web page's tab icon was drawn with AI help. The game's terrain comes from real elevation data. The portraits are public-domain, CC0 or CC BY 4.0 photographs (credited in NOTICE), and the event cards use archival photographs; on some cards an Illustration switch plays a short, silent AI-generated loop, and a few historical orders show a short AI-generated clip at End Turn, both labelled as such.
+- **Graphics:** the concept and promo images in `promo/` are AI-generated, as is the start screen's painting, and the web page's tab icon was drawn with AI help. The game's terrain comes from real elevation data. The portraits are public-domain, CC0 or CC BY 4.0 photographs (credited in NOTICE), and the event cards use archival photographs; on some cards an Illustration switch plays a short, silent AI-generated loop, and a few historical orders show a short AI-generated clip at End turn, both labelled as such.
 - **Text:** event and content text was drafted with AI, and every fact is checked against the cited source.
 - **Sound:** no AI sound. The start screen can play the original 1948 recording of Ben-Gurion reading the Declaration (Israel State Archives).
 

@@ -61,18 +61,36 @@ def test_an_order_refusal_shows_no_raw_id_or_exception_text():
         assert re.findall(r'\{[^{}]+\}', s['order.failed']) == [], name
 
 
+def test_a_failed_turn_gives_the_next_step_in_both_languages():
+    # #622 (maintainer, 15 October 2026): SimBridge.EndTurn clears the queue when the turn fails, so the refusal says so
+    # and tells the player to give the orders again. The Hebrew waits for the native reviewer (#564).
+    en, he = strings('strings.en.yaml'), strings('strings.he.yaml')
+    assert en['order.failed'] == 'The turn could not run. Your orders were cleared. Give them again.'
+    assert he['order.failed'].count('.') == 3, he['order.failed']
+    assert not re.search('[A-Za-z]', he['order.failed']), he['order.failed']
+
 def test_the_top_bar_and_start_labels_are_in_sentence_case():
     # #622 finding 2: the six Title Case labels match the file's sentence case, and so do the lines that name the two
     # buttons, written as the button shows them. Game.uxml keeps the same texts (HebrewUiTests).
     en = strings('strings.en.yaml')
     assert [en[k] for k in ('hud.caption.support', 'hud.caption.standing', 'hud.caption.fx', 'hud.new_game',
                             'hud.end_turn', 'start.new_game')] == [
-        'Public support', 'International standing', 'Foreign currency', 'New game', 'End turn', 'New game']
+        'Public support', 'International support', 'Foreign currency', 'New game', 'End turn', 'New game']
     for key, value in en.items():
         assert 'End Turn' not in value and 'New Game' not in value, key
     uxml = (UI / 'Game.uxml').read_text(encoding='utf-8')
-    for title in ('Public Support', 'International Standing', 'Foreign Currency', 'New Game', 'End Turn'):
+    for title in ('Public Support', 'International Standing', 'International standing', 'International Support',
+                  'Foreign Currency', 'New Game', 'End Turn'):
         assert f'text="{title}"' not in uxml, title
+
+
+def test_the_international_meter_is_named_support_in_both_languages():
+    # #622 decision 3 (maintainer, 15 October 2026): "International support". The Hebrew is the owner's word for
+    # International Support, תמיכה בינלאומית (Q-HUD-3, decided 15 October 2026, #375), replacing מעמד בינלאומי.
+    en, he = strings('strings.en.yaml'), strings('strings.he.yaml')
+    assert en['hud.caption.standing'] == 'International support'
+    assert he['hud.caption.standing'] == 'תמיכה בינלאומית'
+    assert 'text="International support"' in (UI / 'Game.uxml').read_text(encoding='utf-8')
 
 
 HEBREW_ACRONYM_STRAIGHT_QUOTE = re.compile('[א-ת]"[א-ת]')

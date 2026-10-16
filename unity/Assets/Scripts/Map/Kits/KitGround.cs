@@ -67,7 +67,7 @@ namespace Statecraft.Game.Map.Kits
 
         public string Biome(float x, float z) => biome.TryGetValue(Hex(x, z), out var b) ? b : "sea";
 
-        (int, int) Hex(float x, float z)
+        internal (int, int) Hex(float x, float z)
         {
             var (lon, lat) = Frame.ToLonLat(new Vector3(x, 0f, z));
             return HexPicker.FromLonLat(lon, lat, bounds, hexSizeKm);
@@ -215,6 +215,21 @@ namespace Statecraft.Game.Map.Kits
         public bool OnToken(Vector2 p, float r)
         {
             foreach (var (c, tr) in Tokens) if ((p - c).sqrMagnitude < (tr + r) * (tr + r)) return true;
+            return false;
+        }
+
+        /// <summary>The unit tokens outside the towns with the day each one's window ends (exclusive; MapScene.UnitTokens), for
+        /// the transit camps built later (PlacementLayer.CampGround): a camp keeps off only those still present on or after
+        /// its own date (T67, owner 15 October 2026: "Yes, date-aware").</summary>
+        public readonly List<(Vector2 centre, float radius, System.DateTime until)> DatedTokens = new List<(Vector2, float, System.DateTime)>();
+
+        /// <summary>As <see cref="OnToken(Vector2, float)"/>, also reaching a dated token whose window ends after
+        /// <paramref name="from"/>: one present on that day or later.</summary>
+        public bool OnToken(Vector2 p, float r, System.DateTime from)
+        {
+            if (OnToken(p, r)) return true;
+            foreach (var (c, tr, until) in DatedTokens)
+                if (until > from && (p - c).sqrMagnitude < (tr + r) * (tr + r)) return true;
             return false;
         }
 

@@ -16,6 +16,7 @@
     "tags": { "type": "array", "items": { "type": "string" }, "description": "holocaust, terror, massacre and war-casualties are sensitive." },
     "anchor": { "enum": ["hard", "soft"], "description": "Default soft. A hard anchor needs a historical option." },
     "office": { "$ref": "#/definitions/id", "description": "The office the event goes to when the player does not answer." },
+    "objective": { "$ref": "#/definitions/id", "description": "The objective (objectives.yaml) whose completion card this is. It fires only once that objective is completed, and has exactly one option." },
     "from": { "$ref": "#/definitions/date", "description": "First day of the window." },
     "to": { "$ref": "#/definitions/date", "description": "End of the window (exclusive). Leave out for an open window." },
     "conditions": {
@@ -82,6 +83,8 @@
         }
       }
     },
-    "status": { "enum": ["draft", "fact-checked", "historian-reviewed", "sensitivity-reviewed"], "description": "The review status. Default draft." }
+    "status": { "enum": ["draft", "fact-checked", "historian-reviewed", "sensitivity-reviewed"], "description": "The review status. Default draft." },
+    "reviewed_by": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$", "description": "The GitHub handle of the person who signed this row off (#375): written only by that person, never by an AI agent (scripts/oss/reviewed_by_guard.py); never an email. Needs reviewed_on." },
+    "reviewed_on": { "$ref": "#/definitions/date", "description": "The day of that sign-off. Needs reviewed_by." }
   }
 }

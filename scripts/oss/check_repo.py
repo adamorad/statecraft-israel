@@ -87,6 +87,19 @@ def _line_check(name: str, fn: Callable[[str], list[str]]):
     return check
 
 
+def check_home_paths(root: Path, files: list[str], release: bool) -> list[Finding]:
+    """Home paths in text files, by line, and in binary files too (a model exported on someone's machine keeps the
+    absolute paths of its textures, issue #659), where temp and agent-session paths count too (PR #680) and UTF-16
+    forms are matched as well (`oss_policy.binary_home_path_kinds`)."""
+    found = _line_check("home-paths", P.home_path_kinds)(root, files, release)
+    for rel in files:
+        p = root / rel
+        if p.is_symlink() or not p.is_file() or _text(root, rel) is not None:
+            continue
+        found += [Finding("home-paths", rel, 0, k) for k in P.binary_home_path_kinds(p.read_bytes())]
+    return found
+
+
 def check_sizes(root: Path, files: list[str], release: bool) -> list[Finding]:
     return [Finding("sizes", rel, 0, "over-size-limit") for rel in files
             if (root / rel).is_file() and not (root / rel).is_symlink()
@@ -170,7 +183,7 @@ def check_assets(root: Path, files: list[str], release: bool) -> list[Finding]:
 CHECKS: dict[str, Callable[[Path, list[str], bool], list[Finding]]] = {
     "secrets": _line_check("secrets", P.secret_kinds),
     "emails": _line_check("emails", P.email_kinds),
-    "home-paths": _line_check("home-paths", P.home_path_kinds),
+    "home-paths": check_home_paths,
     "conflict-markers": _line_check("conflict-markers", P.conflict_marker_kinds),
     "sizes": check_sizes,
     "symlinks": check_symlinks,

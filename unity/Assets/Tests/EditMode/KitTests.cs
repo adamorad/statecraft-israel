@@ -491,6 +491,14 @@ public class KitTests
         Bad("places:\n" + Place("a").Replace("https://example.org/x", "example.org/x"), "URL");
         Bad("places:\n" + Place("a", "  fate: x\n"), "fate");
         Bad("places:\n" + Place("a", "  today:\n    name: Y\n") , "today");
+        // A person's sign-off (#375): both or neither, a GitHub handle (never an email), a day; on a place or a camp row.
+        Assert.AreEqual(1, Localities.Parse("places:\n" + Place("a", "  reviewed_by: eyalgolan\n  reviewed_on: '2026-10-15'\n"), b, reserved, "loc.yaml").Places.Count);
+        Bad("places:\n" + Place("a", "  reviewed_by: eyalgolan\n"), "reviewed_on");
+        Bad("places:\n" + Place("a", "  reviewed_on: '2026-10-15'\n"), "reviewed_by");
+        Bad("places:\n" + Place("a", "  reviewed_by: someone@example.org\n  reviewed_on: '2026-10-15'\n"), "reviewed_by");
+        Bad("places:\n" + Place("a", "  reviewed_by: ''\n  reviewed_on: '2026-10-15'\n"), "reviewed_by");
+        Bad("places:\n" + Place("a", "  reviewed_by: eyalgolan\n  reviewed_on: 15 October\n"), "reviewed_on");
+        Bad("places:\n" + Place("a") + "encampments:\n- subdistrict: gaza\n  population: 500\n  reviewed_by: eyalgolan\n" + src, "reviewed_on");
         // #558: name_he_sources need the name, and each source an https url and a checked date.
         Bad("places:\n" + Place("a", "  name_he_sources:\n  - {url: 'https://he.wikipedia.org/x', checked: '2026-10-14'}\n"), "name_he_sources without a name_he");
         Bad("places:\n" + Place("a", "  name_he: \"\\u05D0\"\n  name_he_sources:\n  - {url: 'https://he.wikipedia.org/x'}\n"), "name_he_sources[0]");
@@ -541,6 +549,368 @@ public class KitTests
         Assert.IsTrue(kits.All(r => r.enabled)); Assert.IsTrue(markers.All(r => !r.enabled));
     }
 
+    /// <summary>A settlement's point on the ground plane (world x, z).</summary>
+    static Vector2 Spot(MapScene map, string id)
+    {
+        var s = map.Settlements.Single(x => x.Id == id); var w = map.Frame.ToWorld(s.Lon, s.Lat, 0);
+        return new Vector2(w.x, w.z);
+    }
+
+    /// <summary>Issue #32: a ma'abara of 1950-51 is mostly canvas tents with a few tin or canvas huts. The hut share is a
+    /// parameter (a staged look later), and it changes what stands on a plot, never which plots are used.</summary>
+    [Test]
+    public void AMaabaraIsMostlyTentsWithAFewHuts()
+    {
+        var map = OpenMap();
+        var g = PlacementLayer.CampGround(map);
+        var camp = new List<(string id, Vector2 at)> { ("transit_camp_revivim", Spot(map, "revivim")) };
+        var mixed = SettlementKits.Maabarot(camp, g)[0];
+        var tents = SettlementKits.Maabarot(camp, g, 0f)[0];
+        var huts = SettlementKits.Maabarot(camp, g, 1f)[0];
+        TestContext.WriteLine($"share {SettlementKits.MaabaraHutShare}: {mixed.tents} tents, {mixed.huts} huts, {mixed.mesh?.vertexCount} vertices");
+        Assert.IsNotNull(mixed.mesh, "the camp found free ground");
+        Assert.Greater(mixed.huts, 0, "a few huts"); Assert.Greater(mixed.tents, 2 * mixed.huts, "mostly tents");
+        Assert.AreEqual((mixed.tents + mixed.huts, 0), (tents.tents, tents.huts), "share 0: tents only, on the same plots");
+        Assert.AreEqual((0, mixed.tents + mixed.huts), (huts.tents, huts.huts), "share 1: huts only, on the same plots");
+        foreach (var k in new[] { mixed, tents, huts }) if (k.mesh != null) Object.DestroyImmediate(k.mesh);
+    }
+
+    /// <summary>Issue #32: ma'abarot are seeded (two builds, the same camps), stand on dry land clear of every town's plots,
+    /// the 1948 localities and the Bedouin camps, keep off the routes, and two camps asked for on the same ground keep
+    /// apart: a camp stands in its own hex (review #557), so the second finds none left there (the first camp's lots) and
+    /// is drawn as its box, as a camp on Tel Aviv's own point is, the city's plots covering its hex. No pairwise overlap
+    /// check between camps: a hex holds one placement (MapActions.Check), every structure stands in its camp's hex, and
+    /// on all 34 pairs of neighbouring settlement hexes the two camps never touched, built together (1 km apart at the
+    /// closest) or separately on their own lots (review #557), so such a check would compare nothing that could fail.</summary>
+    [Test]
+    public void MaabarotAreSeededAndStandOnFreeDryGround()
+    {
+        var map = OpenMap();
+        var camps = new List<(string id, Vector2 at)> { ("a", Spot(map, "revivim")), ("b", Spot(map, "revivim")), ("c", Spot(map, "tel_aviv")) };
+        var g = PlacementLayer.CampGround(map);
+        var first = SettlementKits.Maabarot(camps, g, out var placed);
+        var second = SettlementKits.Maabarot(camps, PlacementLayer.CampGround(map));
+        Assert.IsNull(first[1].mesh, "b: no ground left in Revivim's hex"); Assert.IsNull(second[1].mesh);
+        Assert.IsNull(first[2].mesh, "c: no ground in Tel Aviv's hex"); Assert.IsNull(second[2].mesh);
+        for (int i = 0; i < 1; i++)
+        {
+            Assert.IsNotNull(first[i].mesh, camps[i].id + ": found free ground");
+            Assert.AreEqual((first[i].tents, first[i].huts), (second[i].tents, second[i].huts), camps[i].id);
+            Assert.AreEqual(first[i].mesh!.vertexCount, second[i].mesh!.vertexCount, camps[i].id);
+            Assert.AreEqual(first[i].mesh!.bounds, second[i].mesh!.bounds, camps[i].id);
+            Assert.Greater(placed.Count(p => p.Id == camps[i].id && p.Kind == "tent"), 0, camps[i].id);
+            Assert.LessOrEqual(placed.Count(p => p.Id == camps[i].id && p.Kind == "communal_hut"), 1, camps[i].id);
+        }
+        foreach (var k in first.Concat(second)) if (k.mesh != null) Object.DestroyImmediate(k.mesh);
+        TestContext.WriteLine(string.Join(", ", camps.Select((c, i) => $"{c.id}: {first[i].tents} tents, {first[i].huts} huts")));
+        int wet = 0, inTown = 0, onRoute = 0;
+        foreach (var p in placed)
+        {
+            if (g.Water(p.C.x, p.C.y)) wet++;
+            if (g.InTown(p.C.x, p.C.y, SettlementKits.PlotReach)) inTown++;
+            if (g.OnRoute(p.C, 0f)) onRoute++;
+        }
+        Assert.AreEqual(0, wet, "a tent or hut in the water");
+        Assert.AreEqual(0, inTown, "a tent or hut on a town's, locality's or Bedouin camp's ground");
+        Assert.AreEqual(0, onRoute, "a tent or hut on a railway or road");
+    }
+
+    /// <summary>Issue #32: with the kits on, a transit camp is drawn as a ma'abara kit (Kit.mat, its own mesh) in place of its
+    /// marker box, built when the camp is placed; housing keeps its box, and the redraw frees the camp's mesh.</summary>
+    [Test]
+    public void ATransitCampIsDrawnAsAMaabaraWhenItIsPlaced()
+    {
+        var map = OpenMap();
+        var c = Statecraft.Sim.ContentLoader.Load(Statecraft.Game.Paths.Content);
+        var hex = c.SettlementHexes.Single(s => s.Id == "revivim");
+        var date = new System.DateTime(1950, 8, 26);
+        var layer = new GameObject("Placements").AddComponent<PlacementLayer>();
+        layer.Render(new[] { new Statecraft.Sim.Placement(Statecraft.Sim.MapActions.TransitCamp, hex.Q, hex.R, date) }, c, map);
+        Assert.AreEqual(1, layer.transform.childCount);
+        var camp = layer.transform.GetChild(0);
+        Assert.AreEqual($"{Statecraft.Sim.MapActions.TransitCamp}_{hex.Q}_{hex.R}", camp.name, "named as its box was");
+        Assert.AreSame(AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Kit.mat"), camp.GetComponent<MeshRenderer>().sharedMaterial);
+        var mesh = camp.GetComponent<MeshFilter>().sharedMesh;
+        Assert.AreNotSame(Resources.GetBuiltinResource<Mesh>("Cube.fbx"), mesh, "a kit, not the marker box");
+        Assert.Greater(mesh.vertexCount, 300, "rows of tents");
+        layer.Render(new[] { new Statecraft.Sim.Placement(Statecraft.Sim.MapActions.Housing, hex.Q, hex.R, date) }, c, map);
+        Assert.IsTrue(mesh == null, "the camp's mesh goes with it");
+        Assert.AreEqual(1, layer.transform.childCount);
+        Assert.AreSame(map.MarkerMaterial, layer.transform.GetChild(0).GetComponent<MeshRenderer>().sharedMaterial, "housing keeps its box");
+    }
+
+    /// <summary>Review (issue #32): with the "kits" toggle off a transit camp is drawn as its marker box, as the settlements
+    /// are, and no camp kit is visible; switching the kits back on draws the ma'abara again.</summary>
+    [Test]
+    public void WithTheKitsOffATransitCampIsItsBox()
+    {
+        var map = OpenMap();
+        var c = Statecraft.Sim.ContentLoader.Load(Statecraft.Game.Paths.Content);
+        var hex = c.SettlementHexes.Single(s => s.Id == "revivim");
+        var camp = new[] { new Statecraft.Sim.Placement(Statecraft.Sim.MapActions.TransitCamp, hex.Q, hex.R, new System.DateTime(1950, 8, 26)) };
+        var layer = new GameObject("Placements").AddComponent<PlacementLayer>();
+        var kitMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Kit.mat");
+        VisualToggles.Set("kits", false);
+        layer.Render(camp, c, map);
+        Assert.AreEqual(1, layer.transform.childCount);
+        var box = layer.transform.GetChild(0);
+        Assert.AreSame(Resources.GetBuiltinResource<Mesh>("Cube.fbx"), box.GetComponent<MeshFilter>().sharedMesh, "the marker box");
+        Assert.AreSame(map.MarkerMaterial, box.GetComponent<MeshRenderer>().sharedMaterial);
+        Assert.IsFalse(layer.GetComponentsInChildren<MeshRenderer>().Any(r => r.enabled && r.sharedMaterial == kitMat), "no camp kit drawn");
+        VisualToggles.Set("kits", true);
+        layer.Render(camp, c, map);
+        Assert.AreSame(kitMat, layer.transform.GetChild(0).GetComponent<MeshRenderer>().sharedMaterial, "the kit again");
+    }
+
+    /// <summary>Review (issue #32): the trees planted at map build do not stand in a ma'abara built later. While the camp's kit
+    /// is drawn no tree drawn has its crown on the camp's ground (the disc round each tent, hut, communal hut and water
+    /// tower); housing in its place, or the kits off (the camp is its box), gives them back. Safed's camp lands among the
+    /// hill olives (it was Rosh Pinna's until main's units file left that hex no ground for a camp with no date: see
+    /// AMaabaraKeepsOffTokensGridMarksAndSteepGround).</summary>
+    [Test]
+    public void NoTreeStandsInAMaabara()
+    {
+        var map = OpenMap();
+        var c = Statecraft.Sim.ContentLoader.Load(Statecraft.Game.Paths.Content);
+        var hex = c.SettlementHexes.Single(s => s.Id == "safed");
+        var date = new System.DateTime(1950, 8, 26);
+        var veg = map.GetComponentInChildren<VegetationLayer>(); Assert.IsNotNull(veg);
+        int before = veg.Drawable().Count();
+        var layer = new GameObject("Placements").AddComponent<PlacementLayer>();
+        var camp = new[] { new Statecraft.Sim.Placement(Statecraft.Sim.MapActions.TransitCamp, hex.Q, hex.R, date) };
+        layer.Render(camp, c, map);
+        Assert.AreSame(AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Kit.mat"), layer.transform.GetChild(0).GetComponent<MeshRenderer>().sharedMaterial, "drawn as its kit");
+        var at = c.HexAt(hex.Q, hex.R)!; var w = map.Frame.ToWorld(at.Lon, at.Lat, 0);
+        var built = SettlementKits.Maabarot(new List<(string id, Vector2 at)> { (layer.transform.GetChild(0).name, new Vector2(w.x, w.z)) },
+            PlacementLayer.CampGround(map), out var placed)[0];
+        if (built.mesh != null) Object.DestroyImmediate(built.mesh);
+        int In(IEnumerable<(TreeKind kind, Matrix4x4 m)> trees) => trees.Count(t => placed.Any(p =>
+            (new Vector2(t.m.m03, t.m.m23) - p.C).magnitude < 0.5f * new Vector2(p.W, p.D).magnitude + VegetationLayer.CrownRadius(t.kind, t.m)));
+        int planted = In(veg.Planted());
+        TestContext.WriteLine($"{placed.Count} structures: {planted} trees planted on them, {veg.Hidden} hidden");
+        Assert.Greater(planted, 0, "the camp stands where trees were planted");
+        Assert.AreEqual(0, In(veg.Drawable()), "a tree drawn in the camp");
+        VisualToggles.Set("kits", false);
+        layer.Render(camp, c, map);
+        Assert.AreEqual(before, veg.Drawable().Count(), "the camp as its box gives the trees back");
+        VisualToggles.Set("kits", true);
+        layer.Render(camp, c, map);
+        Assert.AreEqual(0, In(veg.Drawable()));
+        layer.Render(new[] { new Statecraft.Sim.Placement(Statecraft.Sim.MapActions.Housing, hex.Q, hex.R, date) }, c, map);
+        Assert.AreEqual(before, veg.Drawable().Count(), "housing in the camp's place gives the trees back");
+        Assert.AreEqual(planted, In(veg.Drawable()));
+    }
+
+    /// <summary>Review (issue #32): a ma'abara keeps to the Bedouin camps' rules (Encampments): no tent, hut or water tower
+    /// on a unit token, on a hex edge's grid mark or on steep ground, so a token on the camp's own hex moves it off. Safed's
+    /// camp stands on hilly ground by a hex edge, where those rules refuse plots a build without them fills (review #557: on
+    /// flat Revivim the test passed with the rules removed). It was Rosh Pinna until main's units file placed Carmeli's
+    /// Operation Brosh token beside it (July 1948), whose ring leaves a camp with no date no ground in that hex, so it is
+    /// a box there. A camp of 1950 keeps off only the tokens present from its date
+    /// (RoshPinnasCampOf1950IsAKitOfTentsAndHutsAgain).</summary>
+    [Test]
+    public void AMaabaraKeepsOffTokensGridMarksAndSteepGround()
+    {
+        var map = OpenMap();
+        var g = PlacementLayer.CampGround(map);
+        var at = Spot(map, "safed");
+        g.Tokens.Add((at, 300f));
+        var camp = new List<(string id, Vector2 at)> { ("transit_camp_safed", at) };
+        var built = SettlementKits.Maabarot(camp, g, out var placed)[0];
+        Assert.IsNotNull(built.mesh, "the camp found free ground");
+        Object.DestroyImmediate(built.mesh);
+        Assert.Greater(placed.Count, 0);
+        float lot = 4f * KitScale.Houses;   // a plot's lot and the water tower's (SettlementKits.MaabaraPlotR, WaterTower)
+        foreach (var p in placed)
+        {
+            Assert.IsFalse(g.OnToken(p.C, 0f), p.Kind + " on a unit token");
+            if (p.Kind != "tent" && p.Kind != "hut" && p.Kind != "water_tower") continue;
+            Assert.IsFalse(g.OnGridMark(p.C, lot), p.Kind + " on a grid mark");
+            Assert.LessOrEqual(g.Slope(p.C.x, p.C.y, 600f), 0.12f, p.Kind + " on steep ground");
+        }
+        SettlementKits.MaabaraGroundRules = false;
+        try
+        {
+            var loose = SettlementKits.Maabarot(camp, g)[0];
+            if (loose.mesh != null) Object.DestroyImmediate(loose.mesh);
+            TestContext.WriteLine($"{built.tents + built.huts} plots with the rules, {loose.tents + loose.huts} without; "
+                + $"{placed.Count(p => p.Kind == "water_tower")} water tower");
+            Assert.Greater(loose.tents + loose.huts, built.tents + built.huts, "the grid-mark and slope rules refused a plot");
+        }
+        finally { SettlementKits.MaabaraGroundRules = true; }
+    }
+
+    /// <summary>Review #557: a camp stands in the hex the player built it on, where selection and the info panel point. Over
+    /// the settlement hexes each camp's centre and the whole footprint of every structure it places (tents, huts, the
+    /// communal hut, the water tower) map back to its own hex, or the camp has no kit and is drawn as its box. Its
+    /// tents, huts and water tower keep off the grid marks and steep ground (the water tower too: review #557, should-fix 3).
+    /// The camps are built on 26 August 1950, as the game builds them (date-aware tokens, T67), and each kit has the owner's
+    /// minimum: SettlementKits.MaabaraMinPlots plots, one of them a hut.</summary>
+    [Test]
+    public void AMaabaraStandsInItsOwnHex()
+    {
+        var map = OpenMap();
+        var c = Statecraft.Sim.ContentLoader.Load(Statecraft.Game.Paths.Content);
+        var g = PlacementLayer.CampGround(map);
+        float lot = 4f * KitScale.Houses;   // a plot's lot and the water tower's (SettlementKits.MaabaraPlotR, WaterTower)
+        int kits = 0, towers = 0, structures = 0;
+        var boxes = new List<string>();
+        foreach (var hex in c.SettlementHexes)
+        {
+            var at = c.HexAt(hex.Q, hex.R)!; var w = map.Frame.ToWorld(at.Lon, at.Lat, 0);
+            var camp = new List<(string id, Vector2 at, System.DateTime from)>
+                { ($"{Statecraft.Sim.MapActions.TransitCamp}_{hex.Q}_{hex.R}", new Vector2(w.x, w.z), new System.DateTime(1950, 8, 26)) };
+            var built = SettlementKits.Maabarot(camp, g, out var placed)[0];
+            if (built.mesh == null) { boxes.Add(hex.Id); continue; }
+            kits++;
+            Object.DestroyImmediate(built.mesh);
+            TestContext.WriteLine($"{hex.Id}: {built.tents} tents, {built.huts} huts, {placed.Count} structures, {(built.at - new Vector2(w.x, w.z)).magnitude:F0} m from the hex centre");
+            Assert.GreaterOrEqual(built.tents + built.huts, SettlementKits.MaabaraMinPlots, hex.Id + "'s camp has the owner's minimum of plots");
+            Assert.Greater(built.huts, 0, hex.Id + "'s camp has a hut");
+            (int, int) HexOf(Vector2 p)
+            {
+                var (lon, lat) = map.Frame.ToLonLat(new Vector3(p.x, 0f, p.y));
+                return HexPicker.FromLonLat(lon, lat, map.Hexes.bounds, map.Hexes.hex_size_km);
+            }
+            Assert.AreEqual((hex.Q, hex.R), HexOf(built.at), hex.Id + "'s camp");
+            // Every structure, not only the centre: at the house scale the rows reach about 1.6 km from it, the communal
+            // hut about 3 km and the water tower about 2.6 km, against the hex's 4.33 km inradius (review #557). And the
+            // whole of each, not only its centre (review #557, c9): the disc it claims (a plot's lot, which holds a tent or
+            // hut with its washing and belongings, and the water tower; the communal hut's half-diagonal), sampled every 30°.
+            foreach (var p in placed)
+            {
+                structures++;
+                Assert.AreEqual((hex.Q, hex.R), HexOf(p.C), $"{hex.Id}'s {p.Kind} at ({p.C.x:F0}, {p.C.y:F0}) stands in another hex");
+                float r = p.Kind == "communal_hut" ? 0.5f * new Vector2(p.W, p.D).magnitude : lot;
+                for (int k = 0; k < 12; k++)
+                {
+                    var q = p.C + new Vector2(Mathf.Cos(k * Mathf.PI / 6f), Mathf.Sin(k * Mathf.PI / 6f)) * r;
+                    Assert.AreEqual((hex.Q, hex.R), HexOf(q), $"{hex.Id}'s {p.Kind} at ({p.C.x:F0}, {p.C.y:F0}) reaches into another hex at {k * 30}°");
+                }
+            }
+            foreach (var p in placed.Where(p => p.Kind == "tent" || p.Kind == "hut" || p.Kind == "water_tower"))
+            {
+                if (p.Kind == "water_tower") towers++;
+                Assert.IsFalse(g.OnGridMark(p.C, lot), $"{hex.Id}'s {p.Kind} on a grid mark");
+                Assert.LessOrEqual(g.Slope(p.C.x, p.C.y, 600f), 0.12f, $"{hex.Id}'s {p.Kind} on steep ground");
+            }
+        }
+        TestContext.WriteLine($"{c.SettlementHexes.Count} settlement hexes: {kits} camps drawn as kits ({structures} structures, {towers} water towers), "
+            + $"{boxes.Count} as boxes ({string.Join(", ", boxes)})");
+        Assert.Greater(kits, 0, "some camp finds ground in its own hex");
+    }
+
+    /// <summary>A transit camp the player builds on <paramref name="id"/>'s hex on 26 August 1950, rendered by a placement
+    /// layer: whether it is drawn as its kit (Kit.mat) rather than its marker box.</summary>
+    static bool DrawnAsKit(MapScene map, Statecraft.Sim.Content c, string id)
+    {
+        var hex = c.SettlementHexes.Single(s => s.Id == id);
+        var layer = new GameObject("Placements").AddComponent<PlacementLayer>();
+        layer.Render(new[] { new Statecraft.Sim.Placement(Statecraft.Sim.MapActions.TransitCamp, hex.Q, hex.R, new System.DateTime(1950, 8, 26)) }, c, map);
+        bool kit = layer.transform.GetChild(0).GetComponent<MeshRenderer>().sharedMaterial == AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Kit.mat");
+        layer.Render(new Statecraft.Sim.Placement[0], c, map);   // frees the camp's mesh
+        Object.DestroyImmediate(layer.gameObject);
+        return kit;
+    }
+
+    /// <summary>The centre of <paramref name="id"/>'s hex on the ground plane (world x, z), where PlacementLayer asks for the
+    /// camp the player builds on it.</summary>
+    static Vector2 HexCentre(MapScene map, Statecraft.Sim.Content c, string id)
+    {
+        var hex = c.SettlementHexes.Single(s => s.Id == id);
+        var at = c.HexAt(hex.Q, hex.R)!; var w = map.Frame.ToWorld(at.Lon, at.Lat, 0);
+        return new Vector2(w.x, w.z);
+    }
+
+    /// <summary>T67 (owner, 15 October 2026: "Yes, date-aware"): a camp keeps clear only of the unit tokens present while it
+    /// stands, from its own date on. Camps are built from 1950, and Carmeli's Operation Brosh token by Rosh Pinna stands
+    /// 9-18 July 1948 only (content/map/units_1948.yaml), so Rosh Pinna's camp of 1950 is a kit of tents and huts again, on
+    /// its hex's centre. With no date it keeps off that 1948 token too: then it is a box with the coarse rings, or a few
+    /// tents at the hex's far side with the fine ones.</summary>
+    [Test]
+    public void RoshPinnasCampOf1950IsAKitOfTentsAndHutsAgain()
+    {
+        var map = OpenMap();
+        var c = Statecraft.Sim.ContentLoader.Load(Statecraft.Game.Paths.Content);
+        Assert.IsTrue(DrawnAsKit(map, c, "rosh_pinna"), "Rosh Pinna's camp of 1950 is drawn as its kit");
+        var at = HexCentre(map, c, "rosh_pinna");
+        var g = PlacementLayer.CampGround(map);
+        var built = SettlementKits.Maabarot(new List<(string id, Vector2 at, System.DateTime from)> { ("transit_camp_rosh_pinna", at, new System.DateTime(1950, 8, 26)) }, g)[0];
+        var undated = SettlementKits.Maabarot(new List<(string id, Vector2 at)> { ("transit_camp_rosh_pinna", at) }, g)[0];
+        TestContext.WriteLine($"1950: {built.tents} tents, {built.huts} huts, {(built.at - at).magnitude:F0} m from the hex centre; "
+            + $"no date: {undated.tents} tents, {undated.huts} huts, {(undated.at - at).magnitude:F0} m");
+        foreach (var k in new[] { built, undated }) if (k.mesh != null) Object.DestroyImmediate(k.mesh);
+        Assert.Greater(built.tents, 0, "tents"); Assert.Greater(built.huts, 0, "and huts");
+        Assert.Less(undated.tents + undated.huts, built.tents + built.huts, "with no date the 1948 token still takes the camp's ground");
+    }
+
+    /// <summary>T67: a token present on the camp's date still moves every tent, hut, communal hut and water tower off its ring;
+    /// one whose window ended before that date, on the same spot, changes nothing.</summary>
+    [Test]
+    public void ACampKeepsClearOfTheTokensPresentAtItsDate()
+    {
+        var map = OpenMap();
+        var c = Statecraft.Sim.ContentLoader.Load(Statecraft.Game.Paths.Content);
+        var g = PlacementLayer.CampGround(map);
+        var camp = new List<(string id, Vector2 at, System.DateTime from)> { ("transit_camp_rosh_pinna", HexCentre(map, c, "rosh_pinna"), new System.DateTime(1950, 8, 26)) };
+        var built = SettlementKits.Maabarot(camp, g)[0];
+        Assert.IsNotNull(built.mesh, "Rosh Pinna's camp of 1950 is a kit"); Object.DestroyImmediate(built.mesh);
+        float lot = 4f * KitScale.Houses;   // a plot's lot (SettlementKits.MaabaraPlotR)
+        var token = built.at + new Vector2(lot, 0f);   // on the camp's own ground
+        g.DatedTokens.Add((token, 300f, new System.DateTime(1949, 1, 1)));
+        var past = SettlementKits.Maabarot(camp, g)[0];
+        Assert.AreEqual((built.tents, built.huts, built.at), (past.tents, past.huts, past.at), "a token gone before the camp's date changes nothing");
+        if (past.mesh != null) Object.DestroyImmediate(past.mesh);
+
+        g.DatedTokens.Add((token, 300f, new System.DateTime(1951, 1, 1)));
+        var moved = SettlementKits.Maabarot(camp, g, out var clear)[0];
+        if (moved.mesh != null) Object.DestroyImmediate(moved.mesh);
+        TestContext.WriteLine($"with a token present in 1950: {moved.tents} tents, {moved.huts} huts, {clear.Count} structures");
+        Assert.AreNotEqual(built.at, moved.at, "the token present in 1950 moved the camp");
+        Assert.Greater(clear.Count, 0, "the camp found other ground");
+        foreach (var p in clear)
+            Assert.Greater((p.C - token).magnitude, 300f + 0.5f * Mathf.Min(p.W, p.D), $"{p.Kind} at ({p.C.x:F0}, {p.C.y:F0}) on the token present in 1950");
+    }
+
+    /// <summary>T67 (issue #32; owner: "Yes, a follow-up"): the ma'abarot stood at the edges of the towns. A camp's centre is
+    /// looked for on rings an eighth of its reach apart (450 m at the house scale), not half of it (1.8 km), so a camp finds
+    /// the free ground at a town's edge in its hex: Degania Alef, a box with the coarse rings, gets its kit. Every structure
+    /// still stands wholly in the hex and off the towns, routes and steep ground (AMaabaraStandsInItsOwnHex,
+    /// MaabarotAreSeededAndStandOnFreeDryGround). Gaza's edge has room for 4 tents only, under the owner's minimum, so it
+    /// stays its box (ACampIsAtLeastSixPlotsAndAHutOrItsBox).</summary>
+    [Test]
+    public void ACampFindsTheGroundAtATownsEdge()
+    {
+        var map = OpenMap();
+        var c = Statecraft.Sim.ContentLoader.Load(Statecraft.Game.Paths.Content);
+        Assert.IsTrue(DrawnAsKit(map, c, "degania_alef"), "Degania Alef's camp is drawn as its kit");
+    }
+
+    /// <summary>Owner, 15 October 2026 ("Yes, min 6 plots + a hut"): a ma'abara is at least SettlementKits.MaabaraMinPlots
+    /// plots, one of them a hut, or its search goes on further out in its hex, and it is its box only when nowhere in the
+    /// hex has room. With the nearest free centre alone, Lod's and Ramla's camps of 1950 were 3 tents and no hut, Gaza's 4
+    /// (second review of #646).</summary>
+    [Test]
+    public void ACampIsAtLeastSixPlotsAndAHutOrItsBox()
+    {
+        var map = OpenMap();
+        var c = Statecraft.Sim.ContentLoader.Load(Statecraft.Game.Paths.Content);
+        var g = PlacementLayer.CampGround(map);
+        foreach (var id in new[] { "lod", "ramla", "gaza" })
+        {
+            var at = HexCentre(map, c, id);
+            var hex = c.SettlementHexes.Single(s => s.Id == id);   // the game's seed id (PlacementLayer), so the game's layout
+            var built = SettlementKits.Maabarot(new List<(string id, Vector2 at, System.DateTime from)>
+                { ($"{Statecraft.Sim.MapActions.TransitCamp}_{hex.Q}_{hex.R}", at, new System.DateTime(1950, 8, 26)) }, g)[0];
+            TestContext.WriteLine($"{id}: {(built.mesh == null ? "box" : $"{built.tents} tents, {built.huts} huts, {(built.at - at).magnitude:F0} m from the hex centre")}");
+            if (id == "lod") Assert.IsNotNull(built.mesh, "Lod's camp of 1950 is a kit, not its box (second review of #646)");
+            if (built.mesh == null) continue;
+            Object.DestroyImmediate(built.mesh);
+            Assert.GreaterOrEqual(built.tents + built.huts, SettlementKits.MaabaraMinPlots, id + ": at least the minimum of plots");
+            Assert.Greater(built.huts, 0, id + ": a hut");
+        }
+    }
+
     /// <summary>Review I2: the populations come from content/map/settlement_population_1945.yaml through the map inputs.</summary>
     [Test]
     public void ThePopulationFileLoadsAndRejectsBadRows()
@@ -565,6 +935,10 @@ public class KitTests
         Bad("settlements:\n- id: a\n  population: 1\n  status: owner-verify\n" + src + "- id: a\n  population: 2\n  status: owner-verify\n" + src, "duplicate");
         Bad("settlements:\n- id: A\n  population: 1\n  status: owner-verify\n" + src, "snake_case");
         Bad("settlements:\n- id: a\n  people: 1\n", "people");
+        // A person's sign-off (#375): both or neither, a GitHub handle, a day.
+        Bad("settlements:\n- id: a\n  population: 1\n  status: verified\n  reviewed_by: eyalgolan\n" + src, "reviewed_on");
+        Bad("settlements:\n- id: a\n  population: 1\n  status: verified\n  reviewed_by: a@example.org\n  reviewed_on: '2026-10-15'\n" + src, "reviewed_by");
+        Assert.AreEqual(1, KitPopulation.Parse("settlements:\n- id: a\n  population: 1\n  status: verified\n  reviewed_by: eyalgolan\n  reviewed_on: '2026-10-15'\n" + src, "pop.yaml").Count);
     }
 
     [Test]
@@ -603,10 +977,11 @@ public class KitTests
 
     /// <summary>Issue #34, vegetation round 2: promo 03's hills carry a loose scatter of single olives and low scrub between
     /// the olive clumps. Over the wet hill country (KitGround.HillCountry, 120-950 m) the map as built has at least
-    /// <see cref="HillCrownsPer100Km2"/> olive crowns per 100 km², about <see cref="Vegetation.ScrubShare"/> of the scatter
-    /// low scrub (a squat olive); no scrub crown reaches a town's or village's footprint or a grove's tree; and the scrub is
-    /// spread loosely, neither clumped nor in rows: the Clark-Evans ratio of its nearest-neighbour distances (1 for random
-    /// points, under 1 clumped, about 2 on a grid) stays within <see cref="ScrubSpread"/>.</summary>
+    /// <see cref="HillCrownShare"/> of the ground under an olive crown (planar, before overlaps), about
+    /// <see cref="Vegetation.ScrubShare"/> of the scatter low scrub (a squat olive); no scrub crown reaches a town's or
+    /// village's footprint or a grove's tree; and the scrub is spread loosely, neither clumped nor in rows: the Clark-Evans
+    /// ratio of its nearest-neighbour distances (1 for random points, under 1 clumped, about 2 on a grid) stays within
+    /// <see cref="ScrubSpread"/>.</summary>
     [Test]
     public void TheHillsCarryALooseScatterOfOlivesAndScrub()
     {
@@ -621,6 +996,8 @@ public class KitTests
         var scrubM = olives.Where(Squat).ToList();
         var scrub = scrubM.Select(m => new Vector2(m.m03, m.m23)).ToList();
         float per100 = olives.Count * 100f / hillKm2;
+        // The share of the hill country under an olive crown, planar and before overlaps (Σ π r² over the area).
+        float crownShare = olives.Sum(m => { float r = Vegetation.CrownRadiusM(TreeKind.Olive) * ((Vector3)m.GetColumn(0)).magnitude; return Mathf.PI * r * r; }) / (hillKm2 * 1e6f);
         // Nearest neighbours, footprints and grove trees through a 5 km grid.
         static Dictionary<(int, int), List<Vector2>> Grid(IEnumerable<Vector2> ps)
         {
@@ -650,8 +1027,8 @@ public class KitTests
         float groveCrownMax = groveTrees.Count == 0 ? 0f : groveTrees.Max(t => Crown(t.kind, t.m));
         int inGrove = scrubM.Count(m => { var p = new Vector2(m.m03, m.m23); return Near(groveGrid, p).Any(q => (q - p).magnitude < Crown(TreeKind.Olive, m) + groveCrownMax); });
         TestContext.WriteLine($"hill country {hillKm2} km²: {olives.Count} olives ({per100:0.0} per 100 km²), {scrub.Count} of them scrub; " +
-                              $"scrub spread (Clark-Evans) {spread:0.00}; trees {veg.Count}; scrub reaching a footprint {inTown}, a grove tree {inGrove}");
-        Assert.GreaterOrEqual(per100, HillCrownsPer100Km2, "olive crowns over the hill country");
+                              $"crown area {crownShare:0.000} of the hill country; scrub spread (Clark-Evans) {spread:0.00}; trees {veg.Count}; scrub reaching a footprint {inTown}, a grove tree {inGrove}");
+        Assert.GreaterOrEqual(crownShare, HillCrownShare, "olive crown area over the hill country");
         Assert.Greater(scrub.Count, 0.25f * olives.Count * Vegetation.ScrubShare, "low scrub among them");
         Assert.That(spread, Is.InRange(ScrubSpread.x, ScrubSpread.y), "the scrub is spread loosely, not clumped or in rows");
         Assert.AreEqual(0, inTown, "scrub reaching a town's or village's footprint");
@@ -659,9 +1036,120 @@ public class KitTests
     }
 
     /// <remarks>Measured 2026-10-14 over 11,285 km² of hill country: main 3,480 olives (30.8 per 100 km²), no scrub; with the
-    /// scatter 15,165 (134.4), 4,234 of them scrub, Clark-Evans 1.08.</remarks>
-    public const float HillCrownsPer100Km2 = 120f;
+    /// scatter 15,165 (134.4), 4,234 of them scrub, Clark-Evans 1.08. Visual gap L1 (15 Oct 2026) makes the hill olives
+    /// fewer and larger (Vegetation.HillOliveSize, HillOliveShare), so the floor is now on the crowns' area, not their count:
+    /// main 8e45d8dc measured 15,167 olives (134.4 per 100 km²) under 0.292 of the hill country, and L1 10,405 (92.2) under
+    /// 0.454 (16 Oct 2026). The floor is about 90% of L1's share, the headroom the old count floor had (120 against 134),
+    /// so it fails on main's smaller crowns and on a loss of a tenth of L1's crown area.</remarks>
+    public const float HillCrownShare = 0.41f;
     public static readonly Vector2 ScrubSpread = new Vector2(0.8f, 1.3f);
+
+    /// <summary>Visual gap L1 (issue #34): promo 03's hill olives are large rounded crowns. At gameplay03 (top inset off; the
+    /// crowns are projected geometry, not a render), every full-size hill olive (an olive on the hills or mountains that is
+    /// not squat scrub) whose trunk falls in a window of the east hills has its crown's vertices projected; its on-screen
+    /// diameter is their horizontal spread, as a share of the frame's width. The median in each window must fall in promo
+    /// 03's band for that frame height.</summary>
+    /// <remarks>The windows are the plan's OW1 and OW2 frame heights (top-down y 0.269-0.361 and 0.481-0.620) across the east
+    /// hills (x 0.66-0.96). The bands come from 53 crowns hand-marked as circles on promo 03 (2752 px wide), 15 Oct 2026:
+    /// PW2 (x 1880-2280, y 420-620, top-down frame y 0.27-0.40) 33 crowns, median 0.97% of the width (IQR 0.92-1.02); PW3
+    /// (x 2110-2310, y 740-940, y 0.48-0.61) 20 crowns, median 1.21% (IQR 0.97-1.33). Each band is the median ±15%, cut to
+    /// the plan's provisional band (1.0-1.2% and 1.2-1.45%), which the marks may narrow but not move. So the upper band
+    /// (1.00-1.12%) sits above PW2's own median (0.97%) by design: the ±15% band (0.82-1.12%) is cut at the provisional
+    /// 1.0% floor, and a crown at the promo's exact median would fail it.</remarks>
+    public static readonly Vector2 PromoCrownUpper = new Vector2(0.0100f, 0.0112f), PromoCrownMiddle = new Vector2(0.0120f, 0.0139f);
+
+    static readonly Rect EastHillsUpper = Rect.MinMaxRect(0.66f, 1f - 0.361f, 0.96f, 1f - 0.269f);
+    static readonly Rect EastHillsMiddle = Rect.MinMaxRect(0.66f, 1f - 0.620f, 0.96f, 1f - 0.481f);
+
+    static bool FullHillOlive(KitGround g, TreeKind k, Matrix4x4 m)
+    {
+        if (k != TreeKind.Olive || ((Vector3)m.GetColumn(1)).magnitude < 0.8f * ((Vector3)m.GetColumn(0)).magnitude) return false;
+        var b = g.Biome(m.m03, m.m23);
+        return b == "hills" || b == "mountains";
+    }
+
+    [UnityTest]
+    public IEnumerator TheHillOlivesMatchPromo03sCrownSize()
+    {
+        var map = OpenMap();
+        yield return null;
+        var cam = Camera.main; var rig = cam.GetComponent<CameraRig>();
+        PromoPose.Gameplay03.Apply(rig, map.Frame); rig.TopInset = 0; rig.Apply();
+        var g = Ground(map);
+        var veg = map.GetComponentInChildren<VegetationLayer>(); Assert.IsNotNull(veg);
+        var olive = Vegetation.Build(TreeKind.Olive); var all = new List<Vector3>();
+        olive.Positions(0, olive.VertexCount, all);
+        var crown = all.Where(v => v.y > 1.75f).ToList();   // above the trunk's top (Vegetation.Build)
+        var rt = new RenderTexture(1920, 1080, 24); var old = cam.targetTexture;
+        var upper = new List<float>(); var middle = new List<float>();
+        try
+        {
+            cam.targetTexture = rt;
+            Assert.AreEqual(16f / 9f, cam.aspect, 1e-3f, "the frame is 16:9");
+            foreach (var (k, m) in veg.Planted())
+            {
+                if (!FullHillOlive(g, k, m)) continue;
+                var at = cam.WorldToViewportPoint(m.GetColumn(3));
+                if (at.z <= 0f) continue;
+                var w = EastHillsUpper.Contains(at) ? upper : EastHillsMiddle.Contains(at) ? middle : null;
+                if (w == null) continue;
+                float lo = float.MaxValue, hi = float.MinValue;
+                foreach (var v in crown) { float x = cam.WorldToViewportPoint(m.MultiplyPoint3x4(v)).x; lo = Mathf.Min(lo, x); hi = Mathf.Max(hi, x); }
+                w.Add(hi - lo);
+            }
+        }
+        finally { cam.targetTexture = old; rt.Release(); Object.DestroyImmediate(rt); }
+        static float Median(List<float> l) { l.Sort(); return l.Count == 0 ? 0f : l.Count % 2 == 1 ? l[l.Count / 2] : 0.5f * (l[l.Count / 2 - 1] + l[l.Count / 2]); }
+        float mu = Median(upper), mm = Median(middle);
+        TestContext.WriteLine($"gameplay03 hill olive crowns: upper window {upper.Count} trees, median {mu:P2} of the width (promo {PromoCrownUpper.x:P2}-{PromoCrownUpper.y:P2}); " +
+                              $"middle window {middle.Count} trees, median {mm:P2} (promo {PromoCrownMiddle.x:P2}-{PromoCrownMiddle.y:P2})");
+        Assert.GreaterOrEqual(upper.Count, 15, "enough hill olives in the upper window"); Assert.GreaterOrEqual(middle.Count, 15, "enough in the middle window");
+        Assert.That(mu, Is.InRange(PromoCrownUpper.x, PromoCrownUpper.y), "upper window: hill olive crown size against promo 03");
+        Assert.That(mm, Is.InRange(PromoCrownMiddle.x, PromoCrownMiddle.y), "middle window: hill olive crown size against promo 03");
+    }
+
+    /// <summary>Visual gap L1 (issue #34): the hill olives cover about as much of the hills as promo 03's do. At gameplay03
+    /// (tilt-shift and top inset off), the share of pixels in the plan's windows OW1 and OW2 whose luma changes by more
+    /// than 3/255 when the trees are switched off. With shadows off this is the crowns alone, gated against promo 03's
+    /// hand-marked crown cover; with shadows on (crowns and their shadows) it is reported.</summary>
+    /// <remarks>Promo 03's crown cover, the union of the hand-marked circles (TheHillOlivesMatchPromo03sCrownSize): PW2
+    /// 0.234, PW3 0.412, mean 0.323; the cover here is likewise the mean of OW1's and OW2's shares. The band is 0.323 ±15%.
+    /// OW1 is x 1530-1730, y 290-390 and OW2 x 1540-1740, y 520-670 (top-down) of 1920 x 1080, fixed by the plan.</remarks>
+    public static readonly Vector2 PromoCrownCover = new Vector2(0.275f, 0.371f);
+
+    [UnityTest]
+    public IEnumerator TheHillOlivesCoverPromo03sShareOfTheHills()
+    {
+        var map = OpenMap();
+        yield return null;
+        var cam = Camera.main; var rig = cam.GetComponent<CameraRig>();
+        PromoPose.Gameplay03.Apply(rig, map.Frame); rig.TopInset = 0; rig.Apply();
+        RenderSample.TiltShift(false);
+        var windows = new[] { new RectInt(1530, 290, 200, 100), new RectInt(1540, 520, 200, 150) };
+        (float cover, int[] each) Cover(bool shadows)
+        {
+            VisualToggles.Set("shadows", shadows);
+            VisualToggles.Set("trees", true); var on = RenderSample.Render(cam, 1920, 1080);
+            VisualToggles.Set("trees", false); var off = RenderSample.Render(cam, 1920, 1080);
+            VisualToggles.Set("trees", true); VisualToggles.Set("shadows", true);
+            var each = new int[windows.Length];
+            for (int i = 0; i < windows.Length; i++)
+            {
+                var w = windows[i];
+                for (int y = w.yMin; y < w.yMax; y++)
+                    for (int x = w.xMin; x < w.xMax; x++)
+                    {
+                        int row = 1079 - y;   // RenderSample's row 0 is the bottom
+                        if (Mathf.Abs(RenderSample.Luma(on.At(x, row)) - RenderSample.Luma(off.At(x, row))) > 3f / 255f) each[i]++;
+                    }
+            }
+            return (0.5f * (each[0] / 20000f + each[1] / 30000f), each);
+        }
+        var crowns = Cover(false); var withShadows = Cover(true);
+        TestContext.WriteLine($"gameplay03 OW1+OW2 cover: crowns {crowns.cover:0.000} (OW1 {crowns.each[0] / 20000f:0.000}, OW2 {crowns.each[1] / 30000f:0.000}; promo {PromoCrownCover.x:0.00}-{PromoCrownCover.y:0.00}), " +
+                              $"crowns and shadows {withShadows.cover:0.000} (OW1 {withShadows.each[0] / 20000f:0.000}, OW2 {withShadows.each[1] / 30000f:0.000})");
+        Assert.That(crowns.cover, Is.InRange(PromoCrownCover.x, PromoCrownCover.y), "hill olive crown cover against promo 03");
+    }
 
     /// <summary>The WebGL checkpoint drew every palm black: a frond's tip quad collapsed to a point, its edge-based normal was
     /// zero and normalize(0) is NaN on WebGL 2 (the tilt-shift then smeared it into black blocks). No part may have one.</summary>
@@ -715,6 +1203,21 @@ public class KitTests
     /// and main's routes (2026-10-11); 79% (70 of 89) after #250's units, with the localities' houses and tents off the edge
     /// midpoints (KitGround.OnGridMark, 2026-10-12).</remarks>
     public const float GridReadableShare = 0.75f;
+
+    /// <summary>Visual gap L1's grid guard (G4; owner, 15 Oct 2026: "Yes, add the guard now"): no olive's crown, clump or
+    /// scatter, reaches the midpoint of an edge of its hex (KitGround.OnGridMark), as the 1948 villages' houses and the
+    /// camps' tents already keep off them, so the larger hill crowns never bury the grid where it is easiest to see.</summary>
+    [Test]
+    public void NoOliveCrownCoversAHexEdgeMidpoint()
+    {
+        var map = OpenMap();
+        var g = Ground(map);
+        var olives = Vegetation.Plant(map.Settlements, g).Where(t => t.kind == TreeKind.Olive).ToList();
+        int onMark = olives.Count(t => g.OnGridMark(new Vector2(t.m.m03, t.m.m23), Vegetation.CrownRadiusM(TreeKind.Olive) * ((Vector3)t.m.GetColumn(0)).magnitude));
+        TestContext.WriteLine($"{olives.Count} olives, {onMark} with a crown over a hex-edge midpoint");
+        Assert.Greater(olives.Count, 1000);
+        Assert.AreEqual(0, onMark, "olive crowns over a hex-edge midpoint");
+    }
 
     [UnityTest]
     public IEnumerator TheGridStaysReadableThroughTownsAndGroves()
@@ -844,5 +1347,54 @@ public class KitTests
             Assert.Less(kitRoof, 0.05f, "acne on the roof"); Assert.Less(kitWall, 0.05f, "acne by the roof's sunward edge");
         }
         finally { Object.DestroyImmediate(go); Object.DestroyImmediate(mesh); }
+    }
+
+    /// <summary>A kit face in shadow is a darker version of its own colour, not blue-grey. A pale canvas kit box on the open
+    /// coastal plain at 12 km, web tier, seen from its shaded side: the wall facing away from the sun is lit by the ambient
+    /// alone, the roof by the sun. With the trilight's own colour (near grey at a wall) a pale face in shade kept almost no
+    /// colour, and the grade's teal shadows turned it green-grey: measured before the fix, hue 69 deg against the roof's
+    /// 38, green over red. Graded, as the player sees it (the other switches off): the shaded wall must keep its hue within
+    /// <see cref="ShadeHueDegrees"/> of the sunlit roof's, red its strongest channel, and at least 0.8 of its saturation.</summary>
+    public const float ShadeHueDegrees = 15f;
+
+    [UnityTest]
+    public IEnumerator AKitFaceInShadowKeepsItsOwnHue()
+    {
+        int previous = QualitySettings.GetQualityLevel();
+        QualitySettings.SetQualityLevel(0, false);
+        var map = OpenMap();
+        yield return null;
+        foreach (var n in VisualToggles.Names.Where(n => n != "shadows" && n != "grade")) VisualToggles.Set(n, false);
+        var g = Ground(map);
+        var at = map.Frame.ToWorld(34.70, 31.70, 0);
+        var sun = MapLighting.FindSun()!; var fall = sun.transform.forward; fall.y = 0f; fall.Normalize();
+        const float w = 300f;
+        float toWall = 0.5f * w / Mathf.Max(Mathf.Abs(fall.x), Mathf.Abs(fall.z));
+        var canvas = new Color32(229, 221, 198, 255);   // a pale warm albedo: canvas, lime wash, the camps' tents
+        var km = new KitMesh();
+        float y = g.Y(at.x, at.z);
+        km.Box(at.x, at.z, 0f, w, w, y - 30f, y, w, canvas, canvas, Facade.Plain, 25f);
+        var mesh = km.ToMesh("ShadeProbe");
+        var go = new GameObject("ShadeProbe"); go.AddComponent<MeshFilter>().sharedMesh = mesh;
+        go.AddComponent<MeshRenderer>().sharedMaterial = AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Kit.mat");
+        try
+        {
+            // Looking towards the sun, so the wall facing away from it (the fall crosses it) faces the camera.
+            var cam = Camera.main; var rig = cam.GetComponent<CameraRig>();
+            rig.LookAt = at; rig.Distance = 12000f; rig.Yaw = Mathf.Atan2(-fall.x, -fall.z) * Mathf.Rad2Deg; rig.TopInset = 0f; rig.Apply();
+            var pts = new[] { at + fall * (toWall * 0.98f) + Vector3.up * (y + 0.5f * w - at.y), new Vector3(at.x, y + w, at.z) };
+            var px = new Vector2[2];
+            var s = RenderSample.Render(cam, 1920, 1080, pts, px);
+            Color shade = s.Mean((int)px[0].x, (int)px[0].y, 2), lit = s.Mean((int)px[1].x, (int)px[1].y, 2);
+            Color.RGBToHSV(shade, out var hs, out var ss, out var vs); Color.RGBToHSV(lit, out var hl, out var sl, out var vl);
+            TestContext.WriteLine($"sunlit roof rgb ({lit.r:0.000}, {lit.g:0.000}, {lit.b:0.000}) hue {hl * 360f:0} deg sat {sl:0.00} val {vl:0.00}; " +
+                $"shaded wall rgb ({shade.r:0.000}, {shade.g:0.000}, {shade.b:0.000}) hue {hs * 360f:0} deg sat {ss:0.00} val {vs:0.00}");
+            Assert.Less(vs, 0.8f * vl, "the wall is in shade");
+            Assert.LessOrEqual(Mathf.Abs(Mathf.DeltaAngle(hs * 360f, hl * 360f)), ShadeHueDegrees, "the shaded face turns another hue");
+            Assert.Greater(shade.r, Mathf.Max(shade.g, shade.b), "the shaded face of a warm albedo goes green- or blue-grey");
+            // The hue alone stops failing once the grade's shadows turn slate (#519); the washed-out colour still shows here.
+            Assert.GreaterOrEqual(ss, 0.8f * sl, "the shaded face keeps its colour");
+        }
+        finally { Object.DestroyImmediate(go); Object.DestroyImmediate(mesh); QualitySettings.SetQualityLevel(previous, false); }
     }
 }

@@ -197,7 +197,7 @@ series:
 
     /// <summary>The fixture with the GDD loop on (eras.yaml systems.loop: gdd) and the files and keys that loop needs: the
     /// mvp: rules block, the GDD command kinds' attention_cost, cities.yaml and unit_types.yaml. Every value is a fixture
-    /// value (PLACEHOLDER: owner sets). <paramref name="extra"/> replaces or adds files on top.</summary>
+    /// value, not the game's (the real design values are in content/, R-LOOP-005). <paramref name="extra"/> replaces or adds files on top.</summary>
     public static Dictionary<string, string> Gdd(Dictionary<string, string>? extra = null)
     {
         var o = new Dictionary<string, string>
@@ -224,6 +224,9 @@ mvp:
   arrivals_city: town_a
   build_yishuv_turns: 3
   build_yishuv_cost: 1.5
+  objective_points: 100
+  objective_bonus_per_month: 5
+  objective_bonus_cap: 60
 ";
 
     public const string GddCities = @"

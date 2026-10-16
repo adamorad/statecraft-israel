@@ -48,6 +48,7 @@ namespace Statecraft.Sim
         sealed class CitiesFile { public List<CityStart> Cities { get; set; } = new List<CityStart>(); }
         sealed class UnitTypesFile { public List<UnitType> Types { get; set; } = new List<UnitType>(); }
         sealed class SitesFile { public List<Site> Sites { get; set; } = new List<Site>(); }
+        sealed class ObjectivesFile { public List<Objective> Objectives { get; set; } = new List<Objective>(); }
 
         public const string HexesFile = "map/hexes.json";
         public const string SettlementHexesFileName = "map/settlement_hexes.yaml";
@@ -165,6 +166,18 @@ namespace Statecraft.Sim
                 else into[kv.Key] = kv.Value;
         }
 
+        internal const string ObjectivesFileName = "objectives.yaml";
+
+        /// <summary>Like <see cref="Read{T}"/>, but a missing file is null, not an error. The file is read once.</summary>
+        static T? ReadOptional<T>(Func<string, string?> readFile, string relPath) where T : class
+        {
+            string? text;
+            try { text = readFile(relPath); }
+            catch (IOException e) { throw new ContentException(relPath, "(file)", e.Message); }
+            catch (UnauthorizedAccessException e) { throw new ContentException(relPath, "(file)", e.Message); }
+            return text == null ? null : Read<T>(_ => text, relPath);
+        }
+
         static T Read<T>(Func<string, string?> readFile, string relPath)
         {
             string? text;
@@ -223,6 +236,28 @@ namespace Statecraft.Sim
         static void Encodable(string file, string field, string s)
         {
             if (!SaveText.IsEncodable(s)) throw new ContentException(file, field, "must be valid text (no lone surrogate)");
+        }
+
+        /// <summary>A person's title_he_form: left out, or feminine with its source; and then every office the person holds
+        /// has a feminine title_he_f, so the UI never falls back to the masculine title for her.</summary>
+        static void TitleHeForm(Content c, Person p)
+        {
+            var at = $"people[{p.Id}].title_he_form";
+            var sourced = p.BiographySources.ContainsKey("title_he_form");
+            if (!p.TitleHeFormGiven)
+            {
+                if (sourced) throw new ContentException("people.yaml", at, "required: biography_sources.title_he_form is set but title_he_form is not");
+                return;
+            }
+            if (p.TitleHeForm != TitleHeForms.Feminine)
+                throw new ContentException("people.yaml", at, $"must be {TitleHeForms.Feminine}, or left out for the masculine title_he");
+            if (!sourced) throw new ContentException("people.yaml", $"people[{p.Id}].biography_sources.title_he_form", "required: a feminine title_he_form needs a source (url and checked)");
+            foreach (var t in p.Offices)
+            {
+                var o = c.Offices.FirstOrDefault(x => x.Id == t.Office);
+                if (o != null && o.TitleHeF == "")
+                    throw new ContentException("offices.yaml", $"offices[{o.Id}].title_he_f", $"required: {p.Id} holds this office and has title_he_form: {TitleHeForms.Feminine}");
+            }
         }
 
         /// <summary>A Hebrew display name (#558): when set it holds Hebrew letters and has at least one source, each an https URL
@@ -299,12 +334,18 @@ namespace Statecraft.Sim
             //                              requirements cannot form a cycle (EventRules)
             //   options: [{ id, text, historical, recommended, effects: [{ target, delta }], set_rung, set_policy }]
             //   sources: [{ url, checked }], status
+            //   objective                  the objective (objectives.yaml) whose completion card this is: it fires only once
+            //                              that objective is recorded, and has exactly one option
             foreach (var rel in eventFiles.OrderBy(p => p, StringComparer.Ordinal))
             {
                 var e = Read<GameEvent>(readFile, rel);
                 e.File = rel;
                 c.Events.Add(e);
             }
+            // Objectives (GDD v0.1, Phase 1 PR 6). Read in both loops, since their cards are events every loop loads; a content
+            // set without objectives has no file.
+            c.Objectives = ReadOptional<ObjectivesFile>(readFile, ObjectivesFileName)?.Objectives
+                .OrderBy(o => o.Id, StringComparer.Ordinal).ToList() ?? new List<Objective>();
             Validate(c, settlementIds);
             if (c.IsGdd)
             {
@@ -334,21 +375,17 @@ namespace Statecraft.Sim
         }
 
         /// <summary>Loads content from a directory: every events/*.yaml file is an event.</summary>
-        public static Content Load(string contentRoot) => Load(contentRoot, read => read);
-
-        /// <summary>Loads content from a directory through <paramref name="wrap"/>, which may change the text of the files read
-        /// (MvpSlice.Overlay). The directory checks are the same as for <see cref="Load(string)"/>.</summary>
-        internal static Content Load(string contentRoot, Func<Func<string, string?>, Func<string, string?>> wrap)
+        public static Content Load(string contentRoot)
         {
             var eventsDir = Path.Combine(contentRoot, "events");
             var eventFiles = Directory.Exists(eventsDir)
                 ? Directory.GetFiles(eventsDir, "*.yaml").Select(f => "events/" + Path.GetFileName(f)).ToList()
                 : new List<string>();
-            var content = Load(wrap(rel =>
+            var content = Load(rel =>
             {
                 var path = Path.Combine(contentRoot, rel);
                 return File.Exists(path) ? File.ReadAllText(path) : null;
-            }), eventFiles);
+            }, eventFiles);
             // Only this overload can list the directory. The readFile overload (WebGL) cannot, so a misnamed file is caught
             // here and by RealContentTests before anything ships.
             var rulesDir = Path.Combine(contentRoot, "rules");
@@ -375,9 +412,17 @@ namespace Statecraft.Sim
         static readonly HashSet<string> Statuses = new HashSet<string> { "draft", "fact-checked", "historian-reviewed", "sensitivity-reviewed" };
 
         /// <summary>A display name: required, and not blank.</summary>
-        static void Named(string file, string field, string name)
+        internal static void Named(string file, string field, string name)
         {
             if (string.IsNullOrWhiteSpace(name)) throw new ContentException(file, field, "required (the name shown to the player)");
+        }
+
+        /// <summary>A row's sign-off (#375): reviewed_by and reviewed_on together, a GitHub handle, a day as YYYY-MM-DD (read as
+        /// text, the same rule as tools/review_record.py and the map's readers). <paramref name="at"/> is the row's path, as in "people[ben_gurion]".</summary>
+        internal static void Review(string file, string at, string by, bool byGiven, string on, bool onGiven)
+        {
+            var p = ReviewRecord.Problem(byGiven, by, onGiven, on);
+            if (p != null) throw new ContentException(file, $"{at}.{p.Value.field}", p.Value.message);
         }
 
         internal static void Status(string file, string field, string status)
@@ -656,11 +701,11 @@ namespace Statecraft.Sim
             foreach (var p in c.Policies)
                 if (Array.IndexOf(PlayerText.MoneyIds, p.Id) >= 0) throw new ContentException("model.yaml", $"policies[{p.Id}].id", "same id as money (treasury, debt, fx_reserves)");
 
-            foreach (var p in c.People) Status("people.yaml", $"people[{p.Id}].status", p.Status);
-            foreach (var l in c.Legislatures) Status("legislatures.yaml", $"legislatures[{l.Id}].status", l.Status);
-            foreach (var g in c.Governments) Status("governments.yaml", $"governments[{g.Id}].status", g.Status);
-            for (int i = 0; i < c.Aliyah.Count; i++) Status("aliyah.yaml", FormattableString.Invariant($"series[{i}].status"), c.Aliyah[i].Status);
-            for (int i = 0; i < c.PopulationAnchors.Count; i++) Status("population.yaml", FormattableString.Invariant($"anchors[{i}].status"), c.PopulationAnchors[i].Status);
+            foreach (var p in c.People) { Status("people.yaml", $"people[{p.Id}].status", p.Status); Review("people.yaml", $"people[{p.Id}]", p.ReviewedBy, p.ReviewedByGiven, p.ReviewedOn, p.ReviewedOnGiven); }
+            foreach (var l in c.Legislatures) { Status("legislatures.yaml", $"legislatures[{l.Id}].status", l.Status); Review("legislatures.yaml", $"legislatures[{l.Id}]", l.ReviewedBy, l.ReviewedByGiven, l.ReviewedOn, l.ReviewedOnGiven); }
+            foreach (var g in c.Governments) { Status("governments.yaml", $"governments[{g.Id}].status", g.Status); Review("governments.yaml", $"governments[{g.Id}]", g.ReviewedBy, g.ReviewedByGiven, g.ReviewedOn, g.ReviewedOnGiven); }
+            for (int i = 0; i < c.Aliyah.Count; i++) { Status("aliyah.yaml", FormattableString.Invariant($"series[{i}].status"), c.Aliyah[i].Status); Review("aliyah.yaml", FormattableString.Invariant($"series[{i}]"), c.Aliyah[i].ReviewedBy, c.Aliyah[i].ReviewedByGiven, c.Aliyah[i].ReviewedOn, c.Aliyah[i].ReviewedOnGiven); }
+            for (int i = 0; i < c.PopulationAnchors.Count; i++) { Status("population.yaml", FormattableString.Invariant($"anchors[{i}].status"), c.PopulationAnchors[i].Status); Review("population.yaml", FormattableString.Invariant($"anchors[{i}]"), c.PopulationAnchors[i].ReviewedBy, c.PopulationAnchors[i].ReviewedByGiven, c.PopulationAnchors[i].ReviewedOn, c.PopulationAnchors[i].ReviewedOnGiven); }
 
             foreach (var p in c.People)
             {
@@ -679,13 +724,14 @@ namespace Statecraft.Sim
                 foreach (var kv in p.BiographySources)
                 {
                     var field = $"people[{p.Id}].biography_sources.{kv.Key}";
-                    if (kv.Key != "name_he" && kv.Key != "born" && kv.Key != "died")
-                        throw new ContentException("people.yaml", field, "unknown field (must be name_he, born or died)");
+                    if (kv.Key != "name_he" && kv.Key != "title_he_form" && kv.Key != "born" && kv.Key != "died")
+                        throw new ContentException("people.yaml", field, "unknown field (must be name_he, title_he_form, born or died)");
                     if (kv.Value == null) throw new ContentException("people.yaml", field, "must be a list");
                     for (int i = 0; i < kv.Value.Count; i++)
                         if (kv.Value[i] == null || string.IsNullOrWhiteSpace(kv.Value[i].Url) || kv.Value[i].Checked == default)
                             throw new ContentException("people.yaml", FormattableString.Invariant($"{field}[{i}]"), "needs a url and a checked date");
                 }
+                TitleHeForm(c, p);
                 foreach (var t in p.Offices)
                 {
                     if (string.IsNullOrEmpty(t.Office)) throw new ContentException("people.yaml", $"people[{p.Id}].offices", "office term without an office");
@@ -972,8 +1018,40 @@ namespace Statecraft.Sim
                 if (!cities.Contains(m.ArrivalsCity)) throw new ContentException(file, "mvp.arrivals_city", $"'{m.ArrivalsCity}' is not a city in cities.yaml");
                 if (m.BuildYishuvTurns < 1) throw new ContentException(file, "mvp.build_yishuv_turns", "must be >= 1");
                 if (!(m.BuildYishuvCost >= 0 && IsFinite(m.BuildYishuvCost))) throw new ContentException(file, "mvp.build_yishuv_cost", "must be a finite number >= 0");
+                // One game has one last day (R-LOOP-004): an era cannot move it.
+                if (m.End != c.Rules.Mvp!.End) throw new ContentException(file, "mvp.end", "must be the same in every era (the game has one end)");
+                // R-OBJ-002. Required, so a missing key is not read as 0. Zero is allowed (a balance choice); a negative value
+                // would take points away for finishing.
+                foreach (var (key, v) in new[] { ("objective_points", m.ObjectivePoints), ("objective_bonus_per_month", m.ObjectiveBonusPerMonth), ("objective_bonus_cap", m.ObjectiveBonusCap) })
+                {
+                    if (v == null) throw new ContentException(file, "mvp." + key, "required when eras.yaml systems.loop is gdd");
+                    if (v < 0) throw new ContentException(file, "mvp." + key, "must be >= 0");
+                }
             }
+            // Strictly before the last era's end: an end on it is the era's own end, and the game would be over as era_ended.
+            if (c.Rules.Mvp!.End is DateTime end && (end <= c.Rules.Start || end >= c.Eras[c.Eras.Count - 1].To))
+                throw new ContentException("rules.yaml", "mvp.end", FormattableString.Invariant($"must be after start ({c.Rules.Start:yyyy-MM-dd}) and before the last era's end ({c.Eras[c.Eras.Count - 1].To:yyyy-MM-dd})"));
             ValidateSites(c);
+            ValidateObjectiveSites(c);
+        }
+
+        /// <summary>An objective's site (R-OBJ-001): a designated site of kind yishuv, whose sourced founding date is the
+        /// objective's reference date, so the card and the site cannot disagree. Only the GDD loop reads sites.yaml, so only
+        /// it can check this; EventRules checks the rest of objectives.yaml in both loops.</summary>
+        static void ValidateObjectiveSites(Content c)
+        {
+            foreach (var o in c.Objectives)
+            {
+                var at = $"objectives[{o.Id}]";
+                var id = o.CompletesWhen!.SiteBuilt;   // EventRules requires it
+                var site = c.Sites.FirstOrDefault(x => x.Id == id)
+                    ?? throw new ContentException(ObjectivesFileName, at + ".completes_when.site_built", $"unknown site '{id}' (sites.yaml)");
+                if (!site.Kinds.Contains(Projects.YishuvKind))
+                    throw new ContentException(ObjectivesFileName, at + ".completes_when.site_built", $"site '{id}' cannot be built as a yishuv");
+                if (o.ReferenceDate != site.Founded)
+                    throw new ContentException(ObjectivesFileName, at + ".reference_date",
+                        FormattableString.Invariant($"must be {site.Founded:yyyy-MM-dd}, the founding date of site '{id}' in sites.yaml"));
+            }
         }
 
         /// <summary>What a designated site may be built as (sites.yaml kinds). Phase 1 has "build yishuv" only.</summary>
@@ -1008,6 +1086,7 @@ namespace Statecraft.Sim
                     if (x.Sources[i] == null || string.IsNullOrWhiteSpace(x.Sources[i].Url) || x.Sources[i].Checked == default)
                         throw new ContentException(sf, FormattableString.Invariant($"{at}.sources[{i}]"), "needs a url and checked date");
                 Status(sf, at + ".status", x.Status);
+                Review(sf, at, x.ReviewedBy, x.ReviewedByGiven, x.ReviewedOn, x.ReviewedOnGiven);
             }
         }
 

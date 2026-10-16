@@ -10,6 +10,11 @@ namespace Statecraft.Sim
     {
         public static readonly HashSet<string> SensitiveTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "holocaust", "terror", "massacre", "war-casualties" };
         public static readonly HashSet<string> SpecialTargets = new HashSet<string> { "treasury", "fx_reserves" };
+        /// <summary>Targets a sensitive event's options may not raise (CONTENT_POLICY section 4: no mechanic rewards violence against
+        /// civilians). Owner decision of 15 October 2026 on Q-EFX-2, "Extend it": every resource, not money alone. Until the
+        /// GDD resources exist as targets the legacy indicators stand for them: Money (treasury, fx_reserves), Food
+        /// (food_supply), Social cohesion (morale) and International Support (intl_standing). Arms has no target yet.</summary>
+        public static readonly HashSet<string> NoGainTargets = new HashSet<string> { "treasury", "fx_reserves", "food_supply", "morale", "intl_standing" };
 
         public static void Validate(Content c, HashSet<string> offices, HashSet<string> indicators)
         {
@@ -21,6 +26,7 @@ namespace Statecraft.Sim
                 if (!ids.Add(e.Id)) throw new ContentException(e.File, F("id"), "duplicate event id");
                 if (e.Anchor != "hard" && e.Anchor != "soft") throw new ContentException(e.File, F("anchor"), $"unknown anchor '{e.Anchor}' (must be hard or soft)");
                 ContentLoader.Status(e.File, F("status"), e.Status);
+                ContentLoader.Review(e.File, $"events[{e.Id}]", e.ReviewedBy, e.ReviewedByGiven, e.ReviewedOn, e.ReviewedOnGiven);
                 ContentLoader.Period(e.File, $"events[{e.Id}]", e.From, e.To);
                 // Chapters design 9: an event may not span a boundary; it is split. An open window (no `to`) is allowed only in
                 // the last era, since EventSystem keeps an open event eligible to the end of the game.
@@ -80,12 +86,45 @@ namespace Statecraft.Sim
                             throw new ContentException(e.File, F($"options[{o.Id}].effects.{fx.Target}"), "unknown target");
                         Active(F($"options[{o.Id}].effects.{fx.Target}"), fx.Target);
                         ContentLoader.Finite(e.File, F($"options[{o.Id}].effects.{fx.Target}.delta"), fx.Delta);
-                        if (sensitive && (fx.Target == "treasury" || fx.Target == "fx_reserves") && fx.Delta > 0)
+                        if (sensitive && NoGainTargets.Contains(fx.Target) && fx.Delta > 0)
                             throw new ContentException(e.File, F($"options[{o.Id}].effects.{fx.Target}"), $"sensitive events cannot reward {fx.Target}");
                     }
                 }
             }
             CheckRequirementCycles(c);
+            CheckObjectives(c);
+        }
+
+        /// <summary>Objectives and their cards name each other (R-OBJ-003): an event's `objective` names an objective whose
+        /// `card` is that event, and an objective's card exists, names it back and has exactly one option (the card reports a
+        /// result; there is nothing to choose).</summary>
+        static void CheckObjectives(Content c)
+        {
+            const string file = ContentLoader.ObjectivesFileName;
+            var seen = new HashSet<string>();
+            foreach (var o in c.Objectives)
+            {
+                string F(string field) => $"objectives[{o.Id}].{field}";
+                if (!Offices.OfficeId.IsMatch(o.Id)) throw new ContentException(file, F("id"), ContentLoader.IdRule);
+                if (!seen.Add(o.Id)) throw new ContentException(file, F("id"), "duplicate id");
+                ContentLoader.Named(file, F("name"), o.Name);
+                if (o.CompletesWhen == null || o.CompletesWhen.SiteBuilt == "")
+                    throw new ContentException(file, F("completes_when"), "required: { site_built: <site id> }");
+                if (o.ReferenceDate == default) throw new ContentException(file, F("reference_date"), "required (the sourced date of the real event)");
+                var card = c.Events.FirstOrDefault(e => e.Id == o.Card)
+                    ?? throw new ContentException(file, F("card"), $"unknown event '{o.Card}'");
+                if (card.Objective != o.Id)
+                    throw new ContentException(card.File, $"events[{card.Id}].objective", $"must be '{o.Id}': the event is that objective's card");
+                if (card.Options.Count != 1)
+                    throw new ContentException(card.File, $"events[{card.Id}].options", "an objective's card has exactly one option");
+            }
+            foreach (var e in c.Events.Where(e => e.Objective != ""))
+            {
+                var o = c.Objectives.FirstOrDefault(x => x.Id == e.Objective)
+                    ?? throw new ContentException(e.File, $"events[{e.Id}].objective", $"unknown objective '{e.Objective}'");
+                if (o.Card != e.Id)
+                    throw new ContentException(e.File, $"events[{e.Id}].objective", $"objective '{o.Id}' has another card, '{o.Card}'");
+            }
         }
 
         /// <summary>Re-review N4: a cycle of `requires` (A needs B, B needs A, ...) could never fire. Called after every

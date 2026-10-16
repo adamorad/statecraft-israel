@@ -9,6 +9,36 @@ namespace Statecraft.Sim
 
     public sealed class Source { public string Url { get; set; } = ""; public DateTime Checked { get; set; } }
 
+    /// <summary>The shape of a sign-off's `reviewed_by`: a GitHub handle (letters and digits, single hyphens between them,
+    /// at most 39 characters, and at least one letter, so a bare number such as 1234 reads the same in every reader), so never an email, an @-name, a display name or a bot account ("name[bot]"). Shared with
+    /// the map's readers in Unity.</summary>
+    public static class ReviewRecord
+    {
+        static readonly System.Text.RegularExpressions.Regex Handle =
+            new System.Text.RegularExpressions.Regex(@"^(?=[A-Za-z0-9-]*[A-Za-z])[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}\z");
+
+        public static bool IsHandle(string? s) => s != null && Handle.IsMatch(s);
+
+        static readonly System.Text.RegularExpressions.Regex Day = new System.Text.RegularExpressions.Regex(@"^\d{4}-\d{2}-\d{2}\z");
+
+        /// <summary>Exactly YYYY-MM-DD, and a real day (no 30 February).</summary>
+        public static bool IsDay(string? s) => s != null && Day.IsMatch(s)
+            && DateTime.TryParseExact(s, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);
+
+        /// <summary>What is wrong with a row's sign-off, as (field, message), or null when it is absent or whole: both keys or
+        /// neither (a key that is present but blank counts as present), the handle's shape, and the day as YYYY-MM-DD.</summary>
+        public static (string field, string message)? Problem(bool byGiven, string? by, bool onGiven, string? on)
+        {
+            if (!byGiven && !onGiven) return null;
+            if (!onGiven) return ("reviewed_on", "required with reviewed_by: the day the person signed off (YYYY-MM-DD)");
+            if (!byGiven) return ("reviewed_by", "required with reviewed_on: the reviewer's GitHub handle");
+            if (!IsHandle(by)) return ("reviewed_by", "must be the reviewer's GitHub handle (letters, digits and single hyphens; no @, email or display name)");
+            if (!IsDay(on))
+                return ("reviewed_on", "must be the day of the sign-off, YYYY-MM-DD");
+            return null;
+        }
+    }
+
     /// <summary>The review flag of a Hebrew display name (`*_he_review`, CONTENT_POLICY section 2, rule 6). A name an AI agent
     /// checked against its sources, but no person has read yet, carries <see cref="AgentChecked"/>; the row's own `status`
     /// stays what it is for the English facts. A native speaker's review clears the flag (the key is removed).</summary>
@@ -40,6 +70,10 @@ namespace Statecraft.Sim
         /// <summary>True when the file has the key at all, even blank: a blank flag is an error, not a review.</summary>
         [YamlIgnore] public bool TitleHeFReviewGiven => titleHeFReview != null;
         string? titleHeFReview;
+        /// <summary>The Hebrew title to show for <paramref name="holder"/>: <see cref="TitleHeF"/> when the person's
+        /// <see cref="Person.TitleHeForm"/> is feminine (the loader makes sure every office such a person holds has one),
+        /// else <see cref="TitleHe"/>. Empty when the office has no Hebrew title (the UI then keeps the English).</summary>
+        public string TitleHeFor(Person? holder) => holder?.TitleHeForm == TitleHeForms.Feminine ? TitleHeF : TitleHe;
         /// <summary>Historical record only: no Cabinet seat, player appointment or gameplay responsibility. Defaults false for existing offices.</summary>
         public bool HistoricalOnly { get; set; }
         /// <summary>True when several people may hold the office on the same day (Minister without Portfolio, a second
@@ -118,14 +152,28 @@ namespace Statecraft.Sim
         public double? FocusY { get; set; }
     }
 
+    /// <summary>The values of people.yaml's `title_he_form`.</summary>
+    public static class TitleHeForms
+    {
+        /// <summary>The person's Hebrew office titles take the feminine form, <see cref="Office.TitleHeF"/> (שרת העבודה).</summary>
+        public const string Feminine = "feminine";
+    }
+
     public sealed class Person
     {
         public string Id { get; set; } = "";
         public string Name { get; set; } = "";
         public string NameHe { get; set; } = "";
+        /// <summary>"feminine" when the person's Hebrew office titles take the feminine form (<see cref="Office.TitleHeF"/>),
+        /// sourced in biography_sources.title_he_form; empty (the key left out) for the masculine <see cref="Office.TitleHe"/>.
+        /// Display only: no rule reads it.</summary>
+        public string TitleHeForm { get => titleHeForm ?? ""; set => titleHeForm = value ?? ""; }
+        /// <summary>True when the file has the key at all, even blank: a blank form is an error, not the masculine.</summary>
+        [YamlIgnore] public bool TitleHeFormGiven => titleHeForm != null;
+        string? titleHeForm;
         /// <summary>Biographical birth date; optional until the sourced person data is complete.</summary>
         public DateTime? Born { get; set; }
-        /// <summary>Sources for each biography value (name_he, born, died), separate from dated office-term sources.</summary>
+        /// <summary>Sources for each biography value (name_he, title_he_form, born, died), separate from dated office-term sources.</summary>
         public Dictionary<string, List<Source>> BiographySources { get; set; } = new Dictionary<string, List<Source>>();
         /// <summary>Required (null only when missing, which is a load error): a living person is excluded from release builds.</summary>
         public bool? Living { get; set; }
@@ -137,6 +185,19 @@ namespace Statecraft.Sim
         public Portrait? Portrait { get; set; }
         public List<OfficeTerm> Offices { get; set; } = new List<OfficeTerm>();
         public string Status { get; set; } = "draft";
+        /// <summary>The person who signed this row off: a GitHub handle, written only by that person (owner, 15 October 2026,
+        /// #375: "Yes, humans only"; scripts/oss/reviewed_by_guard.py). Empty when no one has; with <see cref="ReviewedOn"/>.</summary>
+        public string ReviewedBy { get => reviewedBy ?? ""; set => reviewedBy = value ?? ""; }
+        /// <summary>True when the file has the key at all, even blank: a blank sign-off is an error.</summary>
+        [YamlIgnore] public bool ReviewedByGiven => reviewedBy != null;
+        string? reviewedBy;
+        /// <summary>The day of the sign-off, YYYY-MM-DD, as the file writes it (read as text, so the loader checks the same
+        /// shape as tools/review_record.py and the map's readers; YamlDotNet's own date parsing would take "15 October 2026");
+        /// set exactly when <see cref="ReviewedBy"/> is.</summary>
+        public string ReviewedOn { get => reviewedOn ?? ""; set { reviewedOn = value ?? ""; ReviewedOnGiven = true; } }
+        /// <summary>True when the file has the key at all, even blank.</summary>
+        [YamlIgnore] public bool ReviewedOnGiven { get; private set; }
+        string? reviewedOn;
     }
 
     public sealed class Legislature
@@ -161,6 +222,19 @@ namespace Statecraft.Sim
         public List<string> OpenQuestions { get; set; } = new List<string>();
         public List<Source> Sources { get; set; } = new List<Source>();
         public string Status { get; set; } = "draft";
+        /// <summary>The person who signed this row off: a GitHub handle, written only by that person (owner, 15 October 2026,
+        /// #375: "Yes, humans only"; scripts/oss/reviewed_by_guard.py). Empty when no one has; with <see cref="ReviewedOn"/>.</summary>
+        public string ReviewedBy { get => reviewedBy ?? ""; set => reviewedBy = value ?? ""; }
+        /// <summary>True when the file has the key at all, even blank: a blank sign-off is an error.</summary>
+        [YamlIgnore] public bool ReviewedByGiven => reviewedBy != null;
+        string? reviewedBy;
+        /// <summary>The day of the sign-off, YYYY-MM-DD, as the file writes it (read as text, so the loader checks the same
+        /// shape as tools/review_record.py and the map's readers; YamlDotNet's own date parsing would take "15 October 2026");
+        /// set exactly when <see cref="ReviewedBy"/> is.</summary>
+        public string ReviewedOn { get => reviewedOn ?? ""; set { reviewedOn = value ?? ""; ReviewedOnGiven = true; } }
+        /// <summary>True when the file has the key at all, even blank.</summary>
+        [YamlIgnore] public bool ReviewedOnGiven { get; private set; }
+        string? reviewedOn;
     }
 
     public sealed class Government
@@ -184,6 +258,19 @@ namespace Statecraft.Sim
         public List<CoalitionChange> CoalitionChanges { get; set; } = new List<CoalitionChange>();
         public List<Source> Sources { get; set; } = new List<Source>();
         public string Status { get; set; } = "draft";
+        /// <summary>The person who signed this row off: a GitHub handle, written only by that person (owner, 15 October 2026,
+        /// #375: "Yes, humans only"; scripts/oss/reviewed_by_guard.py). Empty when no one has; with <see cref="ReviewedOn"/>.</summary>
+        public string ReviewedBy { get => reviewedBy ?? ""; set => reviewedBy = value ?? ""; }
+        /// <summary>True when the file has the key at all, even blank: a blank sign-off is an error.</summary>
+        [YamlIgnore] public bool ReviewedByGiven => reviewedBy != null;
+        string? reviewedBy;
+        /// <summary>The day of the sign-off, YYYY-MM-DD, as the file writes it (read as text, so the loader checks the same
+        /// shape as tools/review_record.py and the map's readers; YamlDotNet's own date parsing would take "15 October 2026");
+        /// set exactly when <see cref="ReviewedBy"/> is.</summary>
+        public string ReviewedOn { get => reviewedOn ?? ""; set { reviewedOn = value ?? ""; ReviewedOnGiven = true; } }
+        /// <summary>True when the file has the key at all, even blank.</summary>
+        [YamlIgnore] public bool ReviewedOnGiven { get; private set; }
+        string? reviewedOn;
 
         /// <summary>The coalition on <paramref name="date"/>: the opening list with every change dated on or before that
         /// day applied. The result keeps the opening order, with parties that joined added at the end.</summary>
@@ -362,7 +449,7 @@ namespace Statecraft.Sim
         /// term's day. Read through <see cref="Offices.BudgetOwner"/> and <see cref="Offices.BudgetLineOf"/>. Start-only, like budget_start.</summary>
         public Dictionary<string, List<BudgetOwnerTerm>> BudgetOwners { get; set; } = new Dictionary<string, List<BudgetOwnerTerm>>();
         /// <summary>The GDD v0.1 rules (docs/rules/mvp.md). Required, and read, only when eras.yaml systems.loop is gdd; null
-        /// otherwise. Its values are the owner's to set: until then they live in MvpSlice.Overlay or a test fixture.</summary>
+        /// otherwise. Its numbers are design values the owner sets (R-LOOP-005).</summary>
         public MvpRules? Mvp { get; set; }
     }
 
@@ -379,10 +466,19 @@ namespace Statecraft.Sim
         public double CohesionJobsWeight { get; set; }
         /// <summary>The city every arrival lands in (Phase 1 has one city; R-CITY-003).</summary>
         public string ArrivalsCity { get; set; } = "";
+        /// <summary>The day the GDD game ends (R-LOOP-004; D-E5, 15 January 1952 in the real content), or null for the last
+        /// era's end. Read from rules.yaml through <see cref="Content.End"/>; the same in every era.</summary>
+        public DateTime? End { get; set; }
         /// <summary>Turns a "build yishuv" takes, counting the turn it was ordered in (R-SITE-003).</summary>
         public int BuildYishuvTurns { get; set; }
         /// <summary>IL millions a "build yishuv" costs, paid in full when it starts (R-SITE-001).</summary>
         public double BuildYishuvCost { get; set; }
+        /// <summary>Points for each completed objective (R-OBJ-002; D-B6, #456).</summary>
+        public int? ObjectivePoints { get; set; }
+        /// <summary>Bonus points for each calendar month an objective is completed before its reference date's month (R-OBJ-002; D-B2, #456).</summary>
+        public int? ObjectiveBonusPerMonth { get; set; }
+        /// <summary>The most bonus points one objective can earn (R-OBJ-002; D-B2, #456).</summary>
+        public int? ObjectiveBonusCap { get; set; }
     }
 
     /// <summary>A designated site (sites.yaml; docs/GDD.md "Pioneer work": building is allowed only at designated spots, and a
@@ -400,6 +496,19 @@ namespace Statecraft.Sim
         public DateTime Founded { get; set; }
         public List<Source> Sources { get; set; } = new List<Source>();
         public string Status { get; set; } = "";
+        /// <summary>The person who signed this row off: a GitHub handle, written only by that person (owner, 15 October 2026,
+        /// #375: "Yes, humans only"; scripts/oss/reviewed_by_guard.py). Empty when no one has; with <see cref="ReviewedOn"/>.</summary>
+        public string ReviewedBy { get => reviewedBy ?? ""; set => reviewedBy = value ?? ""; }
+        /// <summary>True when the file has the key at all, even blank: a blank sign-off is an error.</summary>
+        [YamlIgnore] public bool ReviewedByGiven => reviewedBy != null;
+        string? reviewedBy;
+        /// <summary>The day of the sign-off, YYYY-MM-DD, as the file writes it (read as text, so the loader checks the same
+        /// shape as tools/review_record.py and the map's readers; YamlDotNet's own date parsing would take "15 October 2026");
+        /// set exactly when <see cref="ReviewedBy"/> is.</summary>
+        public string ReviewedOn { get => reviewedOn ?? ""; set { reviewedOn = value ?? ""; ReviewedOnGiven = true; } }
+        /// <summary>True when the file has the key at all, even blank.</summary>
+        [YamlIgnore] public bool ReviewedOnGiven { get; private set; }
+        string? reviewedOn;
     }
 
     /// <summary>A city's start values (cities.yaml, GDD "Cities and construction"). Counts are population units (D-A1).</summary>
@@ -483,6 +592,19 @@ namespace Statecraft.Sim
         public Dictionary<string, double> Origins { get; set; } = new Dictionary<string, double>();
         public List<Source> Sources { get; set; } = new List<Source>();
         public string Status { get; set; } = "draft";
+        /// <summary>The person who signed this row off: a GitHub handle, written only by that person (owner, 15 October 2026,
+        /// #375: "Yes, humans only"; scripts/oss/reviewed_by_guard.py). Empty when no one has; with <see cref="ReviewedOn"/>.</summary>
+        public string ReviewedBy { get => reviewedBy ?? ""; set => reviewedBy = value ?? ""; }
+        /// <summary>True when the file has the key at all, even blank: a blank sign-off is an error.</summary>
+        [YamlIgnore] public bool ReviewedByGiven => reviewedBy != null;
+        string? reviewedBy;
+        /// <summary>The day of the sign-off, YYYY-MM-DD, as the file writes it (read as text, so the loader checks the same
+        /// shape as tools/review_record.py and the map's readers; YamlDotNet's own date parsing would take "15 October 2026");
+        /// set exactly when <see cref="ReviewedBy"/> is.</summary>
+        public string ReviewedOn { get => reviewedOn ?? ""; set { reviewedOn = value ?? ""; ReviewedOnGiven = true; } }
+        /// <summary>True when the file has the key at all, even blank.</summary>
+        [YamlIgnore] public bool ReviewedOnGiven { get; private set; }
+        string? reviewedOn;
     }
 
     public sealed class PopulationAnchor
@@ -491,6 +613,19 @@ namespace Statecraft.Sim
         public double Jews { get; set; }
         public List<Source> Sources { get; set; } = new List<Source>();
         public string Status { get; set; } = "draft";
+        /// <summary>The person who signed this row off: a GitHub handle, written only by that person (owner, 15 October 2026,
+        /// #375: "Yes, humans only"; scripts/oss/reviewed_by_guard.py). Empty when no one has; with <see cref="ReviewedOn"/>.</summary>
+        public string ReviewedBy { get => reviewedBy ?? ""; set => reviewedBy = value ?? ""; }
+        /// <summary>True when the file has the key at all, even blank: a blank sign-off is an error.</summary>
+        [YamlIgnore] public bool ReviewedByGiven => reviewedBy != null;
+        string? reviewedBy;
+        /// <summary>The day of the sign-off, YYYY-MM-DD, as the file writes it (read as text, so the loader checks the same
+        /// shape as tools/review_record.py and the map's readers; YamlDotNet's own date parsing would take "15 October 2026");
+        /// set exactly when <see cref="ReviewedBy"/> is.</summary>
+        public string ReviewedOn { get => reviewedOn ?? ""; set { reviewedOn = value ?? ""; ReviewedOnGiven = true; } }
+        /// <summary>True when the file has the key at all, even blank.</summary>
+        [YamlIgnore] public bool ReviewedOnGiven { get; private set; }
+        string? reviewedOn;
     }
 
     public sealed class EventCondition { public string Indicator { get; set; } = ""; public double? Min { get; set; } public double? Max { get; set; } }
@@ -528,8 +663,47 @@ namespace Statecraft.Sim
         public List<EventOption> Options { get; set; } = new List<EventOption>();
         public List<Source> Sources { get; set; } = new List<Source>();
         public string Status { get; set; } = "draft";
+        /// <summary>The person who signed this row off: a GitHub handle, written only by that person (owner, 15 October 2026,
+        /// #375: "Yes, humans only"; scripts/oss/reviewed_by_guard.py). Empty when no one has; with <see cref="ReviewedOn"/>.</summary>
+        public string ReviewedBy { get => reviewedBy ?? ""; set => reviewedBy = value ?? ""; }
+        /// <summary>True when the file has the key at all, even blank: a blank sign-off is an error.</summary>
+        [YamlIgnore] public bool ReviewedByGiven => reviewedBy != null;
+        string? reviewedBy;
+        /// <summary>The day of the sign-off, YYYY-MM-DD, as the file writes it (read as text, so the loader checks the same
+        /// shape as tools/review_record.py and the map's readers; YamlDotNet's own date parsing would take "15 October 2026");
+        /// set exactly when <see cref="ReviewedBy"/> is.</summary>
+        public string ReviewedOn { get => reviewedOn ?? ""; set { reviewedOn = value ?? ""; ReviewedOnGiven = true; } }
+        /// <summary>True when the file has the key at all, even blank.</summary>
+        [YamlIgnore] public bool ReviewedOnGiven { get; private set; }
+        string? reviewedOn;
+        /// <summary>The objective (objectives.yaml) whose completion card this event is: it fires only once that objective is
+        /// recorded (R-OBJ-003). Empty for every other event.</summary>
+        public string Objective { get; set; } = "";
         /// <summary>Path relative to the content root, set by the loader (not read from YAML).</summary>
         [YamlIgnore] public string File { get; set; } = "";
+    }
+
+    /// <summary>An objective (objectives.yaml; docs/GDD.md "Historical events on objective completion"). Completing it records
+    /// it, adds its points to the score and fires its card (R-OBJ-001 to R-OBJ-003). Its reference date is the sourced date of
+    /// the real event the card shows.</summary>
+    public sealed class Objective
+    {
+        public string Id { get; set; } = "";
+        /// <summary>The name the player reads (in the Why list).</summary>
+        public string Name { get; set; } = "";
+        /// <summary>What completes it, checked at the end of every GDD turn (R-OBJ-001).</summary>
+        public ObjectiveCondition? CompletesWhen { get; set; }
+        /// <summary>The date the real event happened: completing earlier earns the timing bonus (R-OBJ-002).</summary>
+        public DateTime ReferenceDate { get; set; }
+        /// <summary>The id of the card event (content/events/), which names this objective back in its `objective` key.</summary>
+        public string Card { get; set; } = "";
+    }
+
+    /// <summary>What completes an objective (objectives.yaml completes_when). Phase 1 has one kind.</summary>
+    public sealed class ObjectiveCondition
+    {
+        /// <summary>A designated site (sites.yaml) of kind yishuv: complete once it is built (R-SITE-003).</summary>
+        public string SiteBuilt { get; set; } = "";
     }
 
     /// <summary>One hex of content/map/hexes.json (written by tools/hexgrid.py; axial q, r, pointy-top).</summary>
@@ -572,6 +746,9 @@ namespace Statecraft.Sim
         public bool IsGdd => Loop == EraSystems.Gdd;
         /// <summary>The ruleset a save names (SaveGame.Ruleset): "legacy" or "gdd-0.1".</summary>
         public string Ruleset => IsGdd ? SaveGame.GddRuleset : SaveGame.LegacyRuleset;
+        /// <summary>The day play ends, a boundary the last turn reaches (Simulation.Step): rules.yaml mvp.end in the GDD loop
+        /// (R-LOOP-004), otherwise the last era's end.</summary>
+        public DateTime End => IsGdd && Rules.Mvp?.End is DateTime e ? e : Eras[Eras.Count - 1].To;
         public List<Indicator> Indicators = new List<Indicator>();
         public List<Policy> Policies = new List<Policy>();
         public List<Effect> Effects = new List<Effect>();
@@ -655,6 +832,9 @@ namespace Statecraft.Sim
         public List<UnitType> UnitTypes = new List<UnitType>();
         /// <summary>The GDD designated sites (sites.yaml), in file order. Empty in the legacy loop.</summary>
         public List<Site> Sites = new List<Site>();
+        /// <summary>The objectives (objectives.yaml), ordered by id. Read in both loops, since their cards are events; only the
+        /// GDD loop completes them. Empty when the content has no objectives.yaml.</summary>
+        public List<Objective> Objectives = new List<Objective>();
         /// <summary>SHA-256 (lowercase hex) over every file the loader read, in read order, with CRLF read as LF. A save
         /// records it; loading a save made with other content shows a warning (spec section 7).</summary>
         public string Hash = "";

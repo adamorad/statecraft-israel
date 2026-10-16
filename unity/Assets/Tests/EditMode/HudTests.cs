@@ -33,24 +33,41 @@ public class HudTests
         Assert.AreEqual("", m.Treasury.Delta);                       // no previous turn yet
     }
 
+    /// <summary>T71: the top bar's Treasury is the net position, cash minus debt (HudModel.From; M3 plan: "with deficits
+    /// borrowed, cash alone is always 0"). The sim keeps cash at 0 or above (R-MONEY-003), so a negative reading is debt,
+    /// not a negative Treasury: after four monthly turns with no orders, 0 cash and the debt read as minus the debt.</summary>
+    [Test]
+    public void TheTreasuryShowsCashMinusDebtSoBorrowingReadsNegative()
+    {
+        var bridge = NewBridge();
+        for (var i = 0; i < 4; i++) bridge.EndTurn();
+        Assert.AreEqual(0.0, bridge.State.Treasury);   // R-MONEY-003: cash stops at 0
+        Assert.Greater(bridge.State.Debt, 0.0);
+        var m = HudModel.From(bridge, Text);
+        Assert.AreEqual(PlayerText.Money(C, "treasury", -bridge.State.Debt), m.Treasury.Value);
+        StringAssert.Contains("-IL", m.Treasury.Value);
+    }
+
     // ---- The score (#380): only in the GDD loop, from GameState.Score ----
 
-    static readonly Content Slice = MvpSlice.Load(Paths.Content);
-    static SimBridge SliceBridge() => new SimBridge(GameSession.New(Slice, GoldenRun.Seed, Mode.Historical), Text);
+    /// <summary>The real game: the GDD loop since the cutover (the ?mvp=1 slice is gone with MvpSlice).</summary>
+    static SimBridge GddBridge() => new SimBridge(GameSession.New(C, GoldenRun.Seed, Mode.Historical), Text);
 
     [Test]
     public void TheLegacyLoopShowsNoScore()
     {
-        Assert.AreEqual("", HudModel.From(NewBridge(), Text).Score);
+        // The legacy loop survives only as content without the loop switch (SimBridgeGddTests.Legacy) since the cutover.
+        SimBridge LegacyBridge() => new SimBridge(GameSession.New(SimBridgeGddTests.Legacy, GoldenRun.Seed, Mode.Historical), Text);
+        Assert.AreEqual("", HudModel.From(LegacyBridge(), Text).Score);
         using var ui = new UiTestKit();
-        using var hud = new HudPresenter(ui.Root, NewBridge(), Text);
+        using var hud = new HudPresenter(ui.Root, LegacyBridge(), Text);
         Assert.AreEqual(DisplayStyle.None, ui.Q<Label>("score").style.display.value);
     }
 
     [Test]
-    public void TheSliceShowsItsScore()
+    public void TheGddGameShowsItsScore()
     {
-        var bridge = SliceBridge();
+        var bridge = GddBridge();
         Assert.AreEqual("Score 0", HudModel.From(bridge, Text).Score);
         bridge.State.Score = 150;
         Assert.AreEqual("Score 150", HudModel.From(bridge, Text).Score);
@@ -61,10 +78,10 @@ public class HudTests
     }
 
     [Test]
-    public void TheBarShowsTheSlicesScore()
+    public void TheBarShowsTheGddGamesScore()
     {
         using var ui = new UiTestKit();
-        var bridge = SliceBridge();
+        var bridge = GddBridge();
         using var hud = new HudPresenter(ui.Root, bridge, Text);
         var label = ui.Q<Label>("score");
         Assert.AreEqual("Score 0", label.text);
@@ -83,12 +100,12 @@ public class HudTests
         ui.Press("end-turn");
         Assert.AreEqual(1, bridge.State.Turn);
         Assert.AreEqual("Turn 1", ui.Q<Label>("turn").text);
-        Assert.AreEqual("22 May 1948", ui.Q<Label>("date").text);
+        Assert.AreEqual("15 June 1948", ui.Q<Label>("date").text);   // monthly turns since the GDD cutover
         var arrivals = bridge.Session.Last!.Why.Where(w => w.System == "population").Sum(w => w.Delta);
         Assert.AreEqual(arrivals.ToString("N0", System.Globalization.CultureInfo.InvariantCulture), ui.Q<Label>("immigration-value").text);
         var s0 = bridge.Session.Previous!; var s1 = bridge.State;
         var d = System.Math.Round((s1.Treasury - s1.Debt) - (s0.Treasury - s0.Debt), 1, System.MidpointRounding.AwayFromZero);
-        Assert.AreNotEqual(0.0, d, "the test needs a week with a treasury change");
+        Assert.AreNotEqual(0.0, d, "the test needs a turn with a treasury change");
         Assert.AreEqual(PlayerText.MoneyChange(C, "treasury", d), ui.Q<Label>("treasury-delta").text);
         Assert.AreEqual(d < 0, ui.Q<Label>("treasury-delta").ClassListContains("delta-down"));
         Assert.AreEqual(d > 0, ui.Q<Label>("treasury-delta").ClassListContains("delta-up"));
@@ -304,7 +321,7 @@ public class HudTests
         var text = hebrew ? UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.StringsHebrew).text, "strings.he.yaml") : Text;
         LogAssert.Expect(LogType.Log, new System.Text.RegularExpressions.Regex("unknown policy 'curfew'"));
         var unknown = new SimBridge(GameSession.New(C, GoldenRun.Seed, Mode.Historical), text).Queue(new SetPolicy("curfew", 1));
-        Assert.AreEqual(text.Format("order.unknown", "policy"), unknown);
+        Assert.AreEqual(text.Format("order.unknown", text["order.kind.policy"]), unknown);   // the kind in the UI's language (#595)
         StringAssert.DoesNotContain("curfew", unknown);
 
         LogAssert.Expect(LogType.Exception, new System.Text.RegularExpressions.Regex("stack detail 42"));
@@ -340,7 +357,7 @@ public class HudTests
         Assert.AreEqual(0, bridge.Queued.Count);
         Assert.IsNull(bridge.BeforeLast);
         Assert.AreSame(order, seen![0].Command);
-        Assert.AreEqual("Not done: The turn could not run", ui.Q<Label>("toast").text);   // "boom": the log only (#622)
+        Assert.AreEqual("Not done: The turn could not run. Your orders were cleared. Give them again.", ui.Q<Label>("toast").text);   // "boom": the log only (#622)
     }
 
     /// <summary>Playtest 1, item 11: pressing the open screen's button closes it, every time, with every presenter
@@ -537,7 +554,7 @@ public class HudTests
         using var ui = new UiTestKit();
         var bridge = NewBridge();
         var hud = new HudPresenter(ui.Root, bridge, Text);
-        Assert.AreEqual("Treasury: IL 20.0 million", ui.Q<VisualElement>("meter-treasury").tooltip);           // turn 0: no change
+        Assert.AreEqual("Money: IL 20.0 million", ui.Q<VisualElement>("meter-treasury").tooltip);           // turn 0: no change
         Assert.AreEqual("Foreign currency: $40.0 million", ui.Q<VisualElement>("meter-fx").tooltip);
         Assert.AreEqual("Security: 30%", ui.Q<VisualElement>("meter-security").tooltip);
         bridge.EndTurn();
@@ -549,10 +566,10 @@ public class HudTests
         hud.Render();
         var net = System.Math.Round(now.Treasury - now.Debt, 1, System.MidpointRounding.AwayFromZero);
         Assert.Greater(net, 0, "the test expects a positive net position after one turn");
-        Assert.AreEqual(Inv($"Treasury: IL {net:0.0} million, down IL 1.4 million since last turn"), ui.Q<VisualElement>("meter-treasury").tooltip);
+        Assert.AreEqual(Inv($"Money: IL {net:0.0} million, down IL 1.4 million since last turn"), ui.Q<VisualElement>("meter-treasury").tooltip);
         Assert.AreEqual(Inv($"Foreign currency: ${now.FxReserves:0.0} million, up $2.0 million since last turn"), ui.Q<VisualElement>("meter-fx").tooltip);
         Assert.AreEqual($"Security: {ui.Q<Label>("security-value").text}, up 5 points since last turn", ui.Q<VisualElement>("meter-security").tooltip);
-        Assert.AreEqual($"International standing: {ui.Q<Label>("standing-value").text}, down 1 point since last turn", ui.Q<VisualElement>("meter-standing").tooltip);
+        Assert.AreEqual($"International support: {ui.Q<Label>("standing-value").text}, down 1 point since last turn", ui.Q<VisualElement>("meter-standing").tooltip);
         // Immigration after one turn has no change yet (it needs two turns of arrivals): the caption and the count only.
         Assert.AreEqual($"Immigration: {ui.Q<Label>("immigration-value").text}", ui.Q<VisualElement>("meter-immigration").tooltip);
         // Every tooltip agrees with the meter's shown change: "up" with a gain, "down" with a loss, neither without one.
@@ -603,14 +620,14 @@ public class HudTests
         now.Debt = now.Treasury + 3;                                         // net -3.0
         prev.Debt = prev.Treasury - 1;                                       // net +1.0 before: down by 4
         m = HudModel.From(bridge, Text);
-        Assert.AreEqual("Treasury: -IL 3.0 million, down IL 4.0 million since last turn", HudModel.Spoken(Text, "Treasury", m.Treasury));
+        Assert.AreEqual("Money: -IL 3.0 million, down IL 4.0 million since last turn", HudModel.Spoken(Text, "Money", m.Treasury));
         using var ui = new UiTestKit();
         var he = He;
         new HudPresenter(ui.Root, bridge, he);
         var said = ui.Q<VisualElement>("meter-treasury").tooltip;
         // The values carry left-to-right marks (U+200E, #543), so the minus stays on the left of "IL" in a right-to-left line.
-        Assert.AreEqual("אוצר: \u200E-IL \u200E\u200E3.0\u200E מיליון, קיטון של \u200EIL \u200E\u200E4.0\u200E מיליון מאז התור הקודם", said);
-        Assert.AreEqual("אוצר: -IL 3.0 מיליון, קיטון של IL 4.0 מיליון מאז התור הקודם", said.Replace("\u200E", ""));
+        Assert.AreEqual("כסף: \u200E-IL \u200E\u200E3.0\u200E מיליון, קיטון של \u200EIL \u200E\u200E4.0\u200E מיליון מאז התור הקודם", said);
+        Assert.AreEqual("כסף: -IL 3.0 מיליון, קיטון של IL 4.0 מיליון מאז התור הקודם", said.Replace("\u200E", ""));
         foreach (var id in MeterIds)
         {
             var tip = ui.Q<VisualElement>("meter-" + id).tooltip;

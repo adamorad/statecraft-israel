@@ -41,7 +41,7 @@ public class PlayerTextTests
         Assert.Contains(messages, m => m.EndsWith("immigrants arrived (the Americas and Oceania)", StringComparison.Ordinal));
         Assert.Contains(messages, m => m.EndsWith("immigrants arrived (country of origin not recorded)", StringComparison.Ordinal));
         Assert.Contains(messages, m => m.StartsWith("Morale ", StringComparison.Ordinal) && m.Contains("Homes lift morale"));
-        Assert.Contains(messages, m => m.StartsWith("International standing +5.0% (Armistice with Egypt)", StringComparison.Ordinal));
+        Assert.Contains(messages, m => m.StartsWith("International support +5.0% (Armistice with Egypt)", StringComparison.Ordinal));
         Assert.Contains(messages, m => m.Contains("elected 25 January 1949"));
     }
 
@@ -152,7 +152,9 @@ public class PlayerTextTests
                 Assert.Empty(r.Rejected);
                 causes.AddRange(r.Why);
             }
-        var s = GoldenRun.Play(c, new DateTime(1950, 6, 15));
+        // From October 1949: the monthly run ends on 15 January 1952 (R-LOOP-004), and one appointment a turn needs that many
+        // turns to fill every appointable office; the map actions wait in the loop until 1950 opens them.
+        var s = GoldenRun.Play(c, new DateTime(1949, 10, 15));
         bool budget = false, camp = false, housing = false;
         var appointedOffices = new HashSet<string>(); var appointable = new HashSet<string>();
         var policiesSet = new HashSet<string>();
@@ -168,8 +170,10 @@ public class PlayerTextTests
             if (pick.Item1 != null) cmds.Insert(0, new Appoint(pick.Item1, pick.Item2));   // first, so attention never runs out for it
             if (!budget)
             {
+                // First, so it gets Attention before the appointments: the monthly run to the game's end (15 January 1952) is
+                // too short for it to wait until they run out.
                 var first = s.Budget.Keys.OrderBy(k => k, StringComparer.Ordinal).First();
-                cmds.Add(new AllocateBudget(new Dictionary<string, double>(s.Budget.ToDictionary(k => k.Key, k => k.Value)) { [first] = s.Budget[first] }));
+                cmds.Insert(0, new AllocateBudget(new Dictionary<string, double>(s.Budget.ToDictionary(k => k.Key, k => k.Value)) { [first] = s.Budget[first] }));
             }
             foreach (var (action, done) in new[] { (MapActions.TransitCamp, camp), (MapActions.Housing, housing) })
             {
@@ -302,7 +306,7 @@ public class PlayerTextTests
         Assert.Equal(30.0, PlayerText.Scale(0.3), 9);
         Assert.Equal("55%", PlayerText.Percent(0.55));
         Assert.Equal("+4.1%", PlayerText.PercentChange(0.041));
-        Assert.Equal("Treasury -IL 2.0m", PlayerText.Change(Real, "treasury", -2));
+        Assert.Equal("Money -IL 2.0m", PlayerText.Change(Real, "treasury", -2));   // R-MONEY-001
         Assert.Equal("Morale +5.0%", PlayerText.Change(Real, "morale", 0.05));
         Assert.Equal("Foreign currency", PlayerText.Target(Real, "fx_reserves"));
     }
