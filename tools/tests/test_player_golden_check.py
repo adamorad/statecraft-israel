@@ -454,30 +454,71 @@ def test_arch_is_required_for_macos_and_refused_elsewhere(tmp_path, capsys):
         pg.main(base + ["--platform", "macos", "--arch", "", "--work", str(tmp_path / "w3")])
 
 
-@pytest.mark.skipif(sys.platform != "darwin" or not shutil.which("ditto"), reason="needs ditto, lipo and uname")
-def test_run_refuses_a_mac_slice_the_runner_cannot_run_before_running(tmp_path, capsys, monkeypatch):
-    # Review T53 nit: pins the call into check_arch (the `if a.arch:` wiring), not only check_arch itself. #548: the
-    # CPU is read through `arch -<slice>` as the player is started, so an Intel runner reporting x86_64 for an arm64
-    # check, or an arm64 runner without Rosetta, is refused before the player runs.
+def fake_mac_release(tmp_path):
     (tmp_path / "manifest.txt").write_text(MANIFEST)
     macos = tmp_path / "build" / "Statecraft.app" / "Contents" / "MacOS"
     macos.mkdir(parents=True)
     shutil.copy("/usr/bin/true", macos / "Statecraft Israel")
     z = mac_release_zip(tmp_path)
+    return ["run", "--platform", "macos", "--manifest", str(tmp_path / "manifest.txt"), "--archive", str(z),
+            "--sha256", pg.sha256(z), "--work", str(tmp_path / "w")]
+
+
+@pytest.mark.skipif(sys.platform != "darwin" or not shutil.which("ditto"), reason="needs ditto, lipo and uname")
+def test_run_refuses_a_mac_slice_the_runner_cannot_run_before_running(tmp_path, capsys, monkeypatch):
+    # #548: the CPU is read through `arch -<slice>`. On an arm64 runner without Rosetta (or an Intel one asked for
+    # arm64) `arch` cannot start uname at all ("Bad CPU type in executable"), so the run stops before the player.
     real_run = subprocess.run
     seen = []
 
     def fake_run(cmd, *a, **k):
         seen.append(cmd)
-        if cmd[-2:] == ["uname", "-m"]:
-            return subprocess.CompletedProcess(cmd, 0, "x86_64\n", "")   # an Intel runner, or Rosetta
+        if cmd == ["arch", "-x86_64", "uname", "-m"]:
+            raise subprocess.CalledProcessError(1, cmd, "", "arch: posix_spawnp: uname: Bad CPU type in executable\n")
         return real_run(cmd, *a, **k)
     monkeypatch.setattr(pg.subprocess, "run", fake_run)
-    code = pg.main(["run", "--platform", "macos", "--arch", "arm64", "--manifest", str(tmp_path / "manifest.txt"),
-                    "--archive", str(z), "--sha256", pg.sha256(z), "--work", str(tmp_path / "w")])
+    code = pg.main(fake_mac_release(tmp_path) + ["--arch", "x86_64"])
     out = capsys.readouterr().out
-    assert code == 2 and "the runner is x86_64, not arm64: check the runner label" in out and "RUN " not in out
-    assert ["arch", "-arm64", "uname", "-m"] in seen
+    assert code == 2 and "PLAYER GOLDEN ERROR macos" in out and "RUN " not in out
+    assert "['arch', '-x86_64', 'uname', '-m']" in out
+    assert ["arch", "-x86_64", "uname", "-m"] in seen and ["uname", "-m"] not in seen
+
+
+@pytest.mark.skipif(sys.platform != "darwin" or not shutil.which("ditto"), reason="needs ditto, lipo and uname")
+def test_run_refuses_a_mac_player_without_the_slice_before_running(tmp_path, capsys, monkeypatch):
+    # Review T53 nit: pins the call into check_arch (the `if a.arch:` wiring), not only check_arch itself.
+    real_run = subprocess.run
+
+    def fake_run(cmd, *a, **k):
+        if cmd == ["arch", "-x86_64", "uname", "-m"]:
+            return subprocess.CompletedProcess(cmd, 0, "x86_64\n", "")
+        if cmd[:2] == ["lipo", "-archs"]:
+            return subprocess.CompletedProcess(cmd, 0, "arm64\n", "")
+        return real_run(cmd, *a, **k)
+    monkeypatch.setattr(pg.subprocess, "run", fake_run)
+    code = pg.main(fake_mac_release(tmp_path) + ["--arch", "x86_64"])
+    out = capsys.readouterr().out
+    assert code == 2 and "Statecraft Israel has no x86_64 slice (lipo -archs: arm64)" in out and "RUN " not in out
+
+
+@pytest.mark.skipif(sys.platform != "darwin" or not shutil.which("ditto"), reason="needs ditto, lipo and uname")
+def test_run_starts_the_mac_player_through_arch_for_its_slice(tmp_path, capsys, monkeypatch):
+    # Review of #643: a bare start would run the runner's native arm64 slice and could pass green for x86_64.
+    real_run = subprocess.run
+    started = []
+
+    def fake_run(cmd, *a, **k):
+        if cmd == ["arch", "-x86_64", "uname", "-m"]:
+            return subprocess.CompletedProcess(cmd, 0, "x86_64\n", "")   # Rosetta on an arm64 runner
+        if cmd[:2] == ["lipo", "-archs"]:
+            return subprocess.CompletedProcess(cmd, 0, "x86_64 arm64\n", "")
+        return real_run(cmd, *a, **k)
+    monkeypatch.setattr(pg.subprocess, "run", fake_run)
+    monkeypatch.setattr(pg, "run_player", lambda *args: started.append(args) or 0)
+    pg.main(fake_mac_release(tmp_path) + ["--arch", "x86_64"])
+    assert len(started) == 1 and started[0][4:] == ("x86_64",)
+    exe, log, _, platform, arch = started[0]
+    assert pg.player_command(exe, log, platform, arch)[:2] == ["arch", "-x86_64"]
 
 
 def mac_release_zip(tmp_path, notices=pg.REQUIRED_NOTICES, extra=()):
