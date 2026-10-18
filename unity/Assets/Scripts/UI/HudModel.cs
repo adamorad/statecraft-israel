@@ -23,6 +23,10 @@ namespace Statecraft.Game.UI
     {
         public string Year = "", Turn = "", Date = "", Attention = "", SecurityLevel = "", Score = "";
         public Meter Treasury, Immigration, Security, Support, Standing, Fx;
+        /// <summary>Social cohesion (the morale indicator, R-NAT-001) on the 0-100 scale, shown only in the GDD loop
+        /// (ShowsCohesion; the owner's ruling of 15 October 2026, #380). Empty in the legacy loop.</summary>
+        public Meter Cohesion = new Meter("", "", 0, "", "");
+        public bool ShowsCohesion;
 
         static double Arrivals(StepResult? r) => r == null ? 0 : r.Why.Where(w => w.System == "population").Sum(w => w.Delta);
 
@@ -75,7 +79,7 @@ namespace Statecraft.Game.UI
             {
                 Year = s.Date.Year.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 Turn = t.Format("hud.turn", s.Turn),
-                Date = t.Format("hud.date", PlayerText.Date(s.Date)),
+                Date = t.Format("hud.date", Statecraft.Game.Map.Control1948.DateText(s.Date, k => t[k])),   // the UI's language (#687)
                 Attention = t.Format("hud.attention", b.AttentionLeft, c.RulesAt(s.Date).AttentionPerTurn),
                 SecurityLevel = t.Format("hud.level", s.Rung),
                 Score = c.IsGdd ? t.Format("hud.score", s.Score) : "",   // the GDD loop only (#380); PR 6 moves it
@@ -85,6 +89,8 @@ namespace Statecraft.Game.UI
                 Support = Points(EffectsSystem.Approval(c, s), prev == null ? (double?)null : EffectsSystem.Approval(c, prev)),
                 Standing = Points(s.Indicators["intl_standing"], prev?.Indicators["intl_standing"]),
                 Fx = Money("fx_reserves", s.FxReserves, prev?.FxReserves),
+                ShowsCohesion = c.IsGdd,
+                Cohesion = c.IsGdd ? Points(s.Indicators["morale"], prev?.Indicators["morale"]) : new Meter("", "", 0, "", ""),
             };
         }
     }

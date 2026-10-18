@@ -27,6 +27,7 @@ public class TopBarTests
     {
         (1920, 1080), (1280, 720), (1366, 768), (1760, 1000), (1920, 1200), (1440, 900), (1680, 1050), (1024, 768), (1280, 1024),
         (1024, 1024), (960, 1080), (800, 1000), (1531, 784), (2560, 1080), (1920, 900), (1600, 757), (1366, 657), (960, 600), (390, 844),
+        (360, 800), (375, 667),   // smaller phones held upright: the owner's floor holds "down to 375x667" (#642)
     };
 
     /// <summary>Windows at the one-row tier's edge (review of #624), by their logical width. The panel scales by the plain mean of
@@ -37,14 +38,19 @@ public class TopBarTests
     /// run), so 5:4 takes the stacked bar with its icons. (With the edge moved back to 1612, the one-row bar still fit at
     /// 1635: the edge's place between 5:4 and 4:3 is a margin, not a measured limit.) A 4:3 window as large as 1600x1200
     /// keeps the one-row bar; at 1024x768 the owner's text floor (TheBarsSmallTextKeepsTheFloorOnScreen) raises the small text
-    /// to 20 px, which takes the stacked bar without icons (HudPresenter.FloorGrowth).</summary>
+    /// to 20 px, which takes the stacked bar without icons (HudPresenter.FloorGrowth).
+    /// Social cohesion made seven meters (#380), and the owner chose "tighten and re-tier" (16 October 2026): the one-row edge
+    /// moved to NarrowBelowPx 1860, so 1389x1024, 1600x1200 (4:3) and 1360x1024 now take the stacked bar (only those three
+    /// flags changed), and 1813x1080 (1865 logical, one row) and 1794x1080 (1855, stacked) hold the new edge.</summary>
     static readonly (int w, int h, bool oneRow)[] Boundary =
-        { (1315, 1024, false), (1317, 1024, false), (1389, 1024, true), (1280, 1024, false), (1600, 1200, true), (1024, 768, false),
-          (1360, 1024, true), (1350, 1024, false), (1024, 1024, false) };
+        { (1315, 1024, false), (1317, 1024, false), (1389, 1024, false), (1280, 1024, false), (1600, 1200, false), (1024, 768, false),
+          (1360, 1024, false), (1350, 1024, false), (1024, 1024, false), (1813, 1080, true), (1794, 1080, false) };
 
     /// <summary>The 16:9 windows, promo 03's frame shape. (21:9 is drawn larger: the panel scales by the plain mean of the two
-    /// ratios, so a 2560x1080 window has 926 panel rows; its share is logged, not pinned.)</summary>
-    static readonly (int w, int h)[] PromoShapes = { (1920, 1080), (1280, 720), (1366, 768) };
+    /// ratios, so a 2560x1080 window has 926 panel rows; its share is logged, not pinned.) With seven meters (#380; the owner's
+    /// "tighten and re-tier", 16 October 2026) only 1920x1080 keeps the one-row bar: at 1280x720 and 1366x768 the text floor
+    /// raises the captions to 18 and 17 px, and those windows take the stacked bar (PromoHudTests pins their tier).</summary>
+    static readonly (int w, int h)[] PromoShapes = { (1920, 1080) };
 
     /// <summary>The real Game.uxml on the real PanelSettings at w x h, in English or Hebrew, as the game builds it: the bar laid
     /// out (the loading screen) before the HUD is made, a turn played, then the widest values, changes and date, and a
@@ -90,14 +96,14 @@ public class TopBarTests
             if (widest)
             {
                 foreach (var (name, delta) in new[] { ("treasury", PlayerText.MoneyChange(C, "treasury", -12.4)), ("immigration", text.Format("hud.delta_people", 12345.0)),
-                                                      ("security", "-10%"), ("support", "-10%"), ("standing", "+10%"), ("fx", PlayerText.MoneyChange(C, "fx_reserves", 12.5)) })
+                                                      ("security", "-10%"), ("support", "-10%"), ("cohesion", "-10%"), ("standing", "+10%"), ("fx", PlayerText.MoneyChange(C, "fx_reserves", 12.5)) })
                     root.Q<Label>(name + "-delta").text = delta;
                 foreach (var (name, value) in new[] { ("treasury", PlayerText.Money(C, "treasury", -123.4)), ("immigration", text.Format("hud.people", 123456.0)),
-                                                      ("fx", PlayerText.Money(C, "fx_reserves", 123.4)), ("security", "100%"), ("support", "100%"), ("standing", "100%") })
+                                                      ("fx", PlayerText.Money(C, "fx_reserves", 123.4)), ("security", "100%"), ("support", "100%"), ("cohesion", "100%"), ("standing", "100%") })
                     root.Q<Label>(name + "-value").text = value;
                 root.Q<Label>("security-level").text = text.Format("hud.level", 5);
                 root.Q<Label>("turn").text = text.Format("hud.turn", 120);
-                root.Q<Label>("date").text = text.Format("hud.date", PlayerText.Date(new System.DateTime(1956, 9, 30)));
+                root.Q<Label>("date").text = text.Format("hud.date", Statecraft.Game.Map.Control1948.DateText(TopBarScoreLayoutTests.WorstDate(hebrew), k => text[k]));
                 root.Q<Label>("attention").text = text.Format("hud.attention", 4.0, 4.0);
             }
             dir?.Apply();
@@ -361,17 +367,18 @@ public class TopBarTests
         }, widest: false);
     }
 
-    /// <summary>The owner's text floor (#624, 15 October 2026): the bar's small text (the six captions, Security's level,
-    /// the attention line, and, by the owner's second answer, the plate's turn and date line) is at least HudPresenter.TextFloorPx (12) on screen at small windows, 1280x720 and 1024x768, in
-    /// both languages; a 1080p window keeps the stylesheet's 15 px. The panel scales with the window, so on screen is the
-    /// font size times the window's pixels per panel pixel. (TheBarFitsEveryWindowInEnglishAndHebrew checks that nothing
-    /// collides at these sizes.)</summary>
+    /// <summary>The owner's text floor (#624, 15 October 2026): the bar's small text (the seven captions, Security's level,
+    /// the attention line, and, by the owner's second answer, the plate's turn and date line) is at least
+    /// HudPresenter.TextFloorPx (12) on screen at small windows, 1280x720 and 1024x768, and on phones held upright, 390x844,
+    /// 360x800 and 375x667 (#642; the owner: "down to 375x667"), in both languages; a 1080p window keeps the stylesheet's 15 px.
+    /// The panel scales with the window, so on screen is the font size times the window's pixels per panel pixel.
+    /// (TheBarFitsEveryWindowInEnglishAndHebrew checks that nothing collides at these sizes.)</summary>
     [UnityTest]
     public IEnumerator TheBarsSmallTextKeepsTheFloorOnScreen()
     {
         var problems = new List<string>();
         foreach (var hebrew in new[] { false, true })
-            foreach (var (w, h) in new[] { (1280, 720), (1024, 768), (1920, 1080) })
+            foreach (var (w, h) in new[] { (1280, 720), (1024, 768), (1920, 1080), (390, 844), (360, 800), (375, 667) })
                 yield return Rendered(w, h, hebrew, (root, text) =>
                 {
                     string at = $"{(hebrew ? "he" : "en")} {w}x{h}";
@@ -381,13 +388,18 @@ public class TopBarTests
                     labels.Add(root.Q<Label>("attention"));   // the captions' query also holds security-level (class meter-name)
                     labels.Add(root.Q<Label>("turn")); labels.Add(root.Q<Label>("date"));   // the plate's date line
                     labels = labels.Distinct().ToList();
-                    if (labels.Count != 10) problems.Add($"{at}: precondition: 10 small labels, found {labels.Count}");
+                    if (labels.Count != 11) problems.Add($"{at}: precondition: 11 small labels (Social cohesion's caption with #380), found {labels.Count}");
                     foreach (var l in labels)
                     {
                         if (string.IsNullOrEmpty(l.text) || !(l.worldBound.height > 0)) { problems.Add($"{at}: precondition: {l.name} '{l.text}' shows"); continue; }
                         float onScreen = l.resolvedStyle.fontSize * perPanelPx;
                         TestContext.WriteLine($"{at}: {l.name}/{l.parent?.parent?.name} {l.resolvedStyle.fontSize:0.0} px, {onScreen:0.0} on screen");
                         if (onScreen < 12f - 0.05f) problems.Add($"{at}: {l.parent?.parent?.name} {l.name} '{l.text}' is {onScreen:0.0} px on screen, under the 12 px floor");
+                        // A wrapped caption breaks between words, never inside one (#642: at 25 px "Immigration" is wider than
+                        // the captions' 120 px max-width).
+                        foreach (var word in l.text.Split(' '))
+                            if (l.MeasureTextSize(word, 0, VisualElement.MeasureMode.Undefined, 0, VisualElement.MeasureMode.Undefined).x > l.contentRect.width + 0.5f)
+                                problems.Add($"{at}: {l.parent?.parent?.name} {l.name} '{l.text}' breaks inside '{word}' ({l.contentRect.width:0.0} px wide)");
                         if (w == 1920 && Mathf.Abs(l.resolvedStyle.fontSize - 15f) > 0.01f) problems.Add($"{at}: {l.name} is {l.resolvedStyle.fontSize} px, not the stylesheet's 15");
                     }
                     // The plate's text keeps clear of its gilt frame (reviews of #624 in WebGL: the raised date, then the year,
@@ -417,7 +429,43 @@ public class TopBarTests
         Assert.IsEmpty(problems, string.Join("\n", problems));
     }
 
-    /// <summary>The audit's Tab order is kept: Cabinet, Budget, Defence, Why? (the left column), New Game, End Turn, then the
+    /// <summary>Review of #859 at fb2a8dc (WebGL): on a phone held upright (390x844, 360x800, 375x667) the three-row bar wraps Security's
+    /// caption row, and Security's caption and level still end on the reading side, where the other captions do: in Hebrew at
+    /// the meter's content right edge (they had moved to the left), in English at its left edge (the level's 6 px gap from the
+    /// caption is its left margin); with turn 1's values and with the widest.</summary>
+    [UnityTest]
+    public IEnumerator OnThePhoneBarEachCaptionMeetsItsTextColumnsReadingEdge()
+    {
+        var problems = new List<string>();
+        foreach (var hebrew in new[] { false, true })
+            foreach (var widest in new[] { false, true })
+                foreach (var (w, h) in new[] { (390, 844), (360, 800), (375, 667) })
+                    yield return Rendered(w, h, hebrew, (root, text) =>
+                    {
+                        string at = $"{(hebrew ? "he" : "en")} {w}x{h}{(widest ? " widest" : " turn 1")}";
+                        if (!root.Q("root").ClassListContains("hud-three-row")) { problems.Add($"{at}: precondition: the three-row bar"); return; }
+                        int seen = 0;
+                        foreach (var l in root.Q("top-bar").Query<Label>(className: "meter-name").ToList())
+                        {
+                            if (!Shown(l) || string.IsNullOrEmpty(l.text) || !(l.worldBound.width > 0)) continue;
+                            var body = l.parent;
+                            while (body != null && !body.ClassListContains("meter-body")) body = body.parent;
+                            if (body == null) { problems.Add($"{at}: precondition: '{l.text}' is in a meter's text column"); continue; }
+                            seen++;
+                            var r = l.worldBound; var s = l.resolvedStyle; var align = s.unityTextAlign;
+                            float left = body.worldBound.xMin + body.resolvedStyle.paddingLeft, right = body.worldBound.xMax - body.resolvedStyle.paddingRight;
+                            bool reading = hebrew ? align == TextAnchor.UpperRight || align == TextAnchor.MiddleRight || align == TextAnchor.LowerRight
+                                                  : align == TextAnchor.UpperLeft || align == TextAnchor.MiddleLeft || align == TextAnchor.LowerLeft;
+                            float gap = hebrew ? right - (r.xMax + s.marginRight) : (r.xMin - s.marginLeft) - left;
+                            TestContext.WriteLine($"{at}: '{l.text}' {r}, column {left:0.0}-{right:0.0}, {gap:0.0} px from the reading edge");
+                            if (!reading || Mathf.Abs(gap) > 1f) problems.Add($"{at}: '{l.text}' {r} is {gap:0.0} px from its reading edge (column {left:0.0}-{right:0.0}, aligned {align})");
+                        }
+                        if (seen < 7) problems.Add($"{at}: precondition: the captions and Security's level show, found {seen}");
+                    }, widest: widest);
+        Assert.IsEmpty(problems, string.Join("\n", problems));
+    }
+
+    /// <summary>The audit's Tab order is kept: Cabinet, Budget, Defence, Why?, Settings (the left column), New Game, End Turn, then the
     /// minimap's buttons.</summary>
     [UnityTest]
     public IEnumerator TheTabOrderIsKept()
@@ -427,7 +475,7 @@ public class TopBarTests
             {
                 var order = root.Query<Button>().ToList().Where(e => e.focusable && e.canGrabFocus && e.tabIndex >= 0)
                     .Select(e => e.name).Where(n => n.StartsWith("nav-") || n == "new-game" || n == "end-turn" || n.StartsWith("minimap-")).ToList();
-                CollectionAssert.AreEqual(new[] { "nav-cabinet", "nav-budget", "nav-defence", "nav-why", "new-game", "end-turn", "minimap-overview", "minimap-labels", "minimap-borders" },
+                CollectionAssert.AreEqual(new[] { "nav-cabinet", "nav-budget", "nav-defence", "nav-why", "nav-settings", "new-game", "end-turn", "minimap-overview", "minimap-labels", "minimap-borders" },
                     order, (hebrew ? "he" : "en") + ": the Tab order");
             }, widest: false);
     }

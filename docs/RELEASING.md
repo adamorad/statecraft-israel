@@ -16,14 +16,51 @@ GitHub Releases page (and, from M4, on itch.io). Steps 1–3 are a normal pull r
 5. **Build and package** on the owner's machine, from the merged `main`:
 
    ```bash
-   "$UNITY" -batchmode -CI false -GITHUB_ACTIONS false -TF_BUILD false -quit -projectPath unity -buildTarget WebGL -executeMethod Statecraft.Game.EditorTools.Build.Web -compression brotli -shareable -logFile "$PWD/unity-build-web-br.log"
+   "$UNITY" -batchmode -CI false -GITHUB_ACTIONS false -TF_BUILD false -quit -projectPath unity -buildTarget WebGL -executeMethod Statecraft.Game.EditorTools.Build.Web -compression gzip -shareable -logFile "$PWD/unity-build-web-gz.log"
    git checkout -- unity/Assets/Settings unity/ProjectSettings/ProjectSettings.asset
-   uv run tools/web_check.py unity/Builds/Web-brotli --query "golden&smoke=5" \
-     --expect "GOLDEN OK 1950 ad8067765007988a2ea52226a50622259b695cd72a5b735b298207e472b81504" \
-     --expect "GOLDEN OK 1952 0f54dc51a42575774b12a4b712d6d6ad69a45573232bd5b54b8527b24f4281f2" \
-     --expect "SMOKE OK 5 turns 1948-10-15 85191d48688be4595726b17778ecdda0175eff8f6f0fa1d976dbe3b48b42823b"
-   bash scripts/oss/package_web.sh unity/Builds/Web-brotli unity/Builds/statecraft-israel-vX.Y.Z-web.zip
+   golden_expect=(); while read -r name hash; do [[ -z "$name" || "$name" == \#* ]] || golden_expect+=(--expect "GOLDEN OK $name $hash"); done < sim/Statecraft.Sim.Tests/golden/manifest.txt
+   # one GOLDEN OK line per manifest golden (#394), e.g. "GOLDEN OK hash1950 9922495a92307f87d7b5338cd8501fb60ad0424ea6b19ef2d1ec55c44a8bdfb8"
+   # and "GOLDEN OK hash1952 548a6acce93c677f566e7d6febdeb50ed6aeba0e4f61a884708ef0fc38774d87"
+   uv run tools/web_check.py unity/Builds/Web-gzip --query "golden&smoke=5" "${golden_expect[@]}" \
+     --expect "SMOKE OK 5 turns 1948-10-15 3005405d64abc6e7418fa1f0d35c36ce5f64ed3af7c5a4c24a73d5dfdb16121f"
+   uv run tools/web_check.py unity/Builds/Web-gzip --startscreen new --timeout 300 --stall 90
+   uv run tools/web_check.py unity/Builds/Web-gzip --startscreen recording --timeout 300 --stall 90
+   uv run tools/web_check.py unity/Builds/Web-gzip --startscreen new --query lang=he --timeout 300 --stall 90
+   uv run tools/web_check.py unity/Builds/Web-gzip --startscreen recording --query lang=he --timeout 300 --stall 90
+   bash scripts/oss/package_web.sh unity/Builds/Web-gzip unity/Builds/statecraft-israel-vX.Y.Z-web.zip
    ```
+
+   The release build is gzip, not Brotli (owner decision on #879, 17 October 2026: "gzip for both", one zip for GitHub
+   Releases and itch.io). itch.io's CDN decodes a `.br` file and re-encodes it by content type, and it sends Unity's
+   `.data` (`application/octet-stream`) to the player uncompressed; a gzip `.data` stays gzip. Estimated from the 15 October
+   build's files, that is about 34 MB to download per player instead of about 46 MB. Both load in a browser with Decompression
+   Fallback off, as `Build.Web` sets it, and `web_check.py` serves `*.gz` with `Content-Encoding: gzip`.
+
+   The four `--startscreen` passes (owner decision on #967, 17 October 2026) open the start screen every player sees
+   first, which the golden and smoke run skips: New game, and Play the recording then New game, in English and in
+   Hebrew. Each must print `PASS`. A console exception, `RECORDING failed` or `BOOT FAIL` fails it (#908).
+
+   For the website's playable demo, build a second web variant with Unity's Decompression Fallback - GitHub Pages
+   cannot set response headers, so the loader must decompress the files itself (the site's Play page explains) -
+   check it and package it the same way:
+
+   ```bash
+   "$UNITY" -batchmode -CI false -GITHUB_ACTIONS false -TF_BUILD false -quit -projectPath unity -buildTarget WebGL -executeMethod Statecraft.Game.EditorTools.Build.Web -compression gzip -decompressionFallback -shareable -out Builds/Web-pages -logFile "$PWD/unity-build-web-pages.log"
+   git checkout -- unity/Assets/Settings unity/ProjectSettings/ProjectSettings.asset
+   uv run tools/web_check.py unity/Builds/Web-pages --query "golden&smoke=5" "${golden_expect[@]}" \
+     --expect "SMOKE OK 5 turns 1948-10-15 3005405d64abc6e7418fa1f0d35c36ce5f64ed3af7c5a4c24a73d5dfdb16121f"
+   uv run tools/web_check.py unity/Builds/Web-pages --startscreen new --timeout 300 --stall 90
+   uv run tools/web_check.py unity/Builds/Web-pages --startscreen recording --timeout 300 --stall 90
+   uv run tools/web_check.py unity/Builds/Web-pages --startscreen new --query lang=he --timeout 300 --stall 90
+   uv run tools/web_check.py unity/Builds/Web-pages --startscreen recording --query lang=he --timeout 300 --stall 90
+   bash scripts/oss/package_web.sh unity/Builds/Web-pages unity/Builds/statecraft-israel-vX.Y.Z-web-pages.zip
+   ```
+
+   When the latest release carries this `statecraft-israel-vX.Y.Z-web-pages.zip`, the site's deploy
+   (`.github/workflows/site.yml`) unpacks it at `/demo/`, so the demo is live at the site's `/demo/` after the next
+   deploy (`gh workflow run site.yml` starts one on demand). Until then the site deploys without it, and the Play
+   page keeps saying there is no hosted build. Updating the Play page (and the README's Play section) to link to
+   `/demo/` is a follow-up step when the first such release ships, not part of this release flow.
 
    `package_web.sh` copies the licence and attribution files into the build folder, then runs
    `tools/package_release.py`, M3's sensitivity gate, which zips the folder and prints `PACKAGED …` or
@@ -78,7 +115,8 @@ GitHub Releases page (and, from M4, on itch.io). Steps 1–3 are a normal pull r
    git tag -a vX.Y.Z -m "Statecraft: Israel vX.Y.Z"   # skip if "Desktop builds" already made it
    git push origin vX.Y.Z
    gh release create vX.Y.Z --prerelease --title "vX.Y.Z" --notes-file <notes from CHANGELOG.md, saying "unchecked"> \
-     unity/Builds/statecraft-israel-vX.Y.Z-web.zip <out>/statecraft-israel-vX.Y.Z-windows-x64.zip \
+     unity/Builds/statecraft-israel-vX.Y.Z-web.zip unity/Builds/statecraft-israel-vX.Y.Z-web-pages.zip \
+     <out>/statecraft-israel-vX.Y.Z-windows-x64.zip \
      <out>/statecraft-israel-vX.Y.Z-linux-x64.tar.gz <out>/statecraft-israel-vX.Y.Z-macos-universal.zip
    ```
 
@@ -138,6 +176,47 @@ give a new image an `ASSETS.yaml` row, change `CONCEPT`, `CLIP` or `GRID` in `te
 and land it as a normal pull request. Whether a real build screenshot later replaces the concept art in "What is
 this?" is not decided.
 
+## Capturing trailer footage (issue #45)
+
+The trailer's map shots come from the real build: the editor renders the map frame by frame, so a capture can be run
+again and gives the same camera, state and water on every frame. The pixels match too, except the unit badges' glyphs
+at the whole-country zoom: two runs on the build server differed only there (1,288 of 6.2 million bytes per frame;
+the 60 km frames were byte-identical), where a glyph and its plate draw at almost the same depth. Build the sim DLLs
+first (`python3 tools/build_sim_for_unity.py`), run Unity with graphics (not `-nographics`; on Linux under
+`xvfb-run -a`), then encode the frames with ffmpeg:
+
+```sh
+"$UNITY" -batchmode -CI false -GITHUB_ACTIONS false -TF_BUILD false -quit -projectPath unity \
+  -executeMethod MapCapture.Trailer -captureDir "$PWD/captures/<name>" [-seed 1948] -logFile "$PWD/unity-trailer.log"
+ffmpeg -framerate 60 -i captures/<name>/frame-%05d.png -vf scale=out_color_matrix=bt709 \
+  -c:v libx264 -preset slow -crf 16 -pix_fmt yuv420p -colorspace bt709 -color_primaries bt709 -color_trc bt709 \
+  -movflags +faststart captures/<name>/trailer-map.mp4
+```
+
+Give `-captureDir` an absolute path (a relative one resolves against Unity's working directory) under the ignored
+`captures/` or outside the repo: frames anywhere else in the tree would mark the recorded commit `-dirty`. The capture
+deletes any `frame-*.png` already in it first, so an older, longer run cannot leak into the encode.
+
+- **What it renders:** the camera moves in `TrailerShot.Default` (`unity/Assets/Scripts/Map/TrailerShot.cs`), built only
+  from the promo poses the art checkpoint already compares (`PromoPose`): the whole country held for 2 s, down to the
+  Jaffa-Tel Aviv-Lydda ground of promo 03 (6 s), and back up to the whole country (6 s). 840 frames, 14 s, each move
+  eased in and out. That order is a placeholder; the shots are the owner's call. Change the list to change it.
+- **Settings:** 1920 x 1080 on the desktop (PC) tier, 60 fps, the water's clock pinned to each frame's time, the 1948
+  sub-districts and the units of turn 1 of a new historical game started with `-seed` (default the golden seed, 1948;
+  turn 1's units do not depend on the seed today, it is recorded so a later moment can be repeated). The frames are
+  `frame-00000.png` onwards, one sequence across the shots. `trailer.txt` beside them records the commit, Unity
+  version, seed, size, fps, tier and each shot's frame range.
+- **Not in it:** the UI (editor renders draw no UI Toolkit, so UI shots still come from the player), sound, and the cut.
+  The .mp4 has no audio track; Steam prefers AAC audio, which the cut adds.
+- **Why PNG frames:** a frame is written only when it is fully rendered, so a slow machine gives the same footage as a
+  fast one, and the Linux editor needs no video codec. On the software-rendered Linux build server (llvmpipe) the
+  default 840 frames took 15 to 25 minutes (907 s alone, 1,459 s beside another Unity run) and 2.3 GB of PNG; the
+  encode took under a minute. Delete the frames after encoding.
+- **Check the encode** before it goes anywhere:
+  `ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate,bit_rate captures/<name>/trailer-map.mp4`
+  must say h264, 1920 x 1080, 60/1, and a bit rate above Steam's 5,000 Kbps. If it is under (long still holds compress
+  well), encode again with `-b:v 8M -maxrate 12M -bufsize 16M` in place of `-crf 16`.
+
 ## Store-page checklist (issue #45; OWNER STEP)
 
 This is preparation, not a published store page or an answered content survey. The checklist does not clear the name,
@@ -164,9 +243,10 @@ assets or content for commercial use. Finish the release gates above first; the 
   08 as gameplay. Review each screenshot's age-suitability flag individually; never mark a sensitive scene suitable for
   all ages just to gain placement. If at least four genuinely qualify, mark them suitable for all ages; with fewer
   flagged, the game may not appear in some placements.
-- [ ] Prepare a trailer from the real build, not the M2 recruiting flythrough or concept-art target. The deterministic
-  1920 x 1080, 60 fps capture and draft cut are the separate trailer part of #45, still pending; this checklist does
-  not provide a capture script or a finished trailer. Record the build/seed and capture settings with the cut.
+- [ ] Prepare a trailer from the real build, not the M2 recruiting flythrough or concept-art target. Capture the map
+  footage with "Capturing trailer footage" above (1920 x 1080, 60 fps, deterministic); the draft cut is still pending
+  (#45), so this checklist does not provide a finished trailer. Keep the capture's `trailer.txt` (build commit, seed and
+  capture settings) with the cut.
   Steam requires a trailer and recommends that the first one be mostly gameplay; this project's rule (real build only)
   is stricter. Upload the highest resolution available, up to 1920 x 1080, at 30/29.97 or 60/59.94 fps and
   5,000+ Kbps, in a .mov, .wmv or .mp4 container; H.264 video with AAC audio is preferred

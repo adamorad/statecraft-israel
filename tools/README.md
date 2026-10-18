@@ -11,7 +11,7 @@ Offline data tools (uv inline-script Python). Run from the repo root.
 - `ims_normals.py` downloads Israel Meteorological Service rain-gauge records from data.gov.il into `tools/.cache/ims/`
   (not committed) and writes the 1981-2010 station normals `content/map/precip_stations.json` (committed).
 - `slim_collection.py --src DIR --out unity/Assets/Art/Collection` (issue #664) slims the 31 non-building models of The
-  1948 Collection (Tal's Tripo models from PR #507; owner ruling of 15 October 2026: "Plain git, slimmed first") into the
+  1948 Collection and its nine whole-town models (MATKOT's Tripo models from PR #507; issue #663; owner ruling of 15 October 2026: "Plain git, slimmed first") into the
   files the game ships: per model a far mesh of at most 1,500 triangles (4,500 for vehicles), a near mesh of at most 8,000 (skinned, with only
   its idle clip, on the 13 models that have one) and a 512 px colour map. It runs Blender as the `bpy` module
   (`uv run --no-project --python 3.13 --with bpy==5.2.2 --with pillow==12.3.0 python -I tools/slim_collection.py ...`);
@@ -43,9 +43,9 @@ Offline data tools (uv inline-script Python). Run from the repo root.
 - `player_golden_check.py` is the logic of `.github/workflows/player-golden.yml`: `plan` lists the desktop players a
   GitHub Release carries (their asset names are the contract with the release script) and refuses a partial set, and
   `run` checks one against GitHub's SHA-256 digest for the asset, unpacks it, checks the notices sit beside the player, runs it
-  with `-batchmode -nographics -golden` and passes only on exit 0 with both `GOLDEN OK` lines from the golden manifest,
+  with `-batchmode -nographics -golden` and passes only on exit 0 with every `GOLDEN OK` line from the golden manifest,
   printing the player log otherwise. Stdlib only; no Unity and no licence needed.
-- `package_release.py` zips a Brotli WebGL build for sharing (`unity/Builds/statecraft-m3-web.zip`) and refuses
+- `package_release.py` zips a WebGL release build (gzip, `unity/Builds/Web-gzip`; #879) for sharing (`unity/Builds/statecraft-m3-web.zip`) and refuses
   (exit 1) until every sensitive event is `sensitivity-reviewed` (docs/m3-release.md). The files under `Build/` are
   named by their content hash (issue #437); it reads their names from the build's `index.html`, zips only those and
   refuses a build that is missing one.
@@ -56,8 +56,11 @@ Offline data tools (uv inline-script Python). Run from the repo root.
 - `preview_map.py` renders the geography check image `tools/.cache/map-preview.png`.
 - `terrain_bake.py` writes `unity/Assets/Textures/Map/terrain_bake.png` (AO, curvature, sky-view), `ao.png` (the AO
   alone, imported uncompressed) and `coast.png`
-  (exact signed Euclidean distance to the shoreline; lakes under 1 km2 count as land) from the committed heightmap (no
-  network). Re-run it whenever the heightmap changes; its PNG bytes are reproducible only on the same toolchain.
+  (exact signed Euclidean distance to the shoreline; lakes under 1 km2 count as land; on the dune coasts its land side is
+  beach-scaled for the wider beach, #388, except over each settlement's own ground) from the committed heightmap and
+  the settlement, locality and population files in `content/map/` (no network). Re-run it whenever any of them changes
+  (`test_the_committed_coast_is_the_bake_of_todays_settlements` fails on a stale `coast.png`); its PNG bytes are
+  reproducible only on the same toolchain.
 - `land_bake.py` writes `unity/Assets/Textures/Map/landuse.png` (the land-use colour and weight: field parcels with
   farm tracks, garrigue, terraces and scrub, placed by slope, rainfall and towns) from the heightmap, the CHELSA rainfall,
   the hex biomes and the 1948 settlements (no network); `StatecraftLand.hlsl` lays it over the biome ground. Re-run it
@@ -69,11 +72,14 @@ Offline data tools (uv inline-script Python). Run from the repo root.
   prints diorama02's warmth per material (sand, sea, wood) against promo 02's (#695);
   `art_checkpoint.sh [--no-build] <name>` builds WebGL, takes the screenshots (`web_check.py --shots`) and runs it
   (docs/visual-v1.md).
-- `coast_measure.py <shots...> --window south|north [--promo] [--check]` measures the beach width, foam band, lace lines
-  and sand lightness across the coast of a gameplay03 screenshot (or promo 03's same coast), the median over several
-  shots, against bands set from promo 03 (#388).
+- `coast_measure.py <shots...> --window south|north [--promo] [--check]` measures the beach width, foam band, lace
+  lines, striped rows and sand lightness across the coast of a gameplay03 screenshot (or promo 03's same coast), the
+  median over several shots, against bands set from promo 03 (#388).
 - `machine_lock.py` serialises frame-time measurements against every other Unity job on the machine (all worktrees,
   batch runs and open editors).
+- `unity_postmerge.py` runs the full Unity EditMode suite on each new `main` commit, on the owner's Mac, and reports a
+  failure as one issue while `main` stays broken, with a comment for each newly failing commit (T72; details in
+  "Post-merge Unity run" below).
 - `headed.py` drives a WebGL build in a headed Chrome for Testing over CDP (real GPU, real mouse events, a temporary
   profile deleted on exit): `boot` (?bootlog phase timings, optional CPU throttling), `navpairs` (same-frame click pairs
   under ?navlog), `loadshot` (screenshots during the load) and `profile` (visual v1's `?vprofile` in a headed window at a
@@ -136,3 +142,49 @@ Repeated paths do not satisfy the count. It does not compare image contents: cop
 what each screenshot shows and records the build commit/zip SHA-256 and capture date. This does not capture anything,
 change a release gate or submit a store page. Steam's [official screenshot requirements](https://partner.steamgames.com/doc/store/assets/standard)
 were checked 11 October 2026; re-check before submission. These are not itch.io requirements.
+
+## Post-merge Unity run (T72)
+
+CI cannot run Unity (CONTRIBUTING.md, "What CI runs"), so two pull requests can each pass and still break Unity once
+both are on `main`. `tools/unity_postmerge.py` closes that gap after the merge, on the owner's Mac, from a launchd job
+(`tools/unity_postmerge.plist.in`, every 15 minutes).
+- launchd starts `unity_postmerge_launch.py` (a copy in the job folder, `~/.cache/statecraft/unity-postmerge`). It
+  fetches `origin/main`, moves the job's own worktree (`~/.cache/statecraft/unity-postmerge/worktree`) to the tip and
+  runs `tools/unity_postmerge.py` from there. So a merged change to the script takes effect on the next run, and no
+  checkout's working tree is used or changed.
+- When the tip is not the commit it last tested, the script cleans the worktree (keeping the Library, capped at 6 GB),
+  runs the whole EditMode suite under `machine_lock.py --shared --wait-unity` and reverts the settings churn. A Unity
+  still running 90 minutes after it started (`--unity-timeout-min`) is stopped by the PID `machine_lock.py` recorded
+  for it (SIGTERM, then SIGKILL), and the run counts as timed out.
+- A pass adds one line to `~/.cache/statecraft/unity-postmerge/results.log`. Anything else, 0 tests included, is
+  reported once per commit with the failing tests and the log tail: as a new issue (label `area: unity`), or, while an
+  issue it opened is still open, as a comment on that issue. It tests the tip only; the report lists the commits since
+  the last tested one.
+- Before the log tail, compile errors, test messages, the broken-run reason (git's stderr, for one) and the commit
+  list go into the public issue, email addresses, the home folder (to `~`), any `/Users/<name>`, Unity's
+  `LicenseClient-<name>` and the user name are redacted. If redacting fails, the report says "Log withheld" and
+  carries none of them.
+- Fetch and `gh` failures, and a launcher that cannot start the script, are written to `launchd.log` in the job folder.
+  When `main`'s tip still has no PASS or FAIL line in `results.log` 6 hours after it was committed (the 4 h lock wait,
+  90 min of Unity and 30 min to spare), the job appends one `STALE` line for that commit to `results.log`, so a
+  stuck job or an expired `gh` login shows there. A job that does not run at all (launchd, `uv` or the fetch broken)
+  writes nothing: a `results.log` whose last line is older than `main`'s tip by more than 6 hours means that.
+
+Install (owner's Mac only, from a checkout of `main` that has these files):
+
+```bash
+job=~/.cache/statecraft/unity-postmerge
+mkdir -p "$job" && cp tools/unity_postmerge_launch.py "$job/"
+sed -e "s#@UV@#$(command -v uv)#g" -e "s#@REPO@#$HOME/israel-game#g" -e "s#@HOME@#$job#g" \
+    -e "s#@PATH@#$(dirname "$(command -v uv)"):$(dirname "$(command -v gh)"):$(dirname "$(command -v dotnet)"):/usr/bin:/bin:/usr/sbin:/sbin#g" \
+    tools/unity_postmerge.plist.in > ~/Library/LaunchAgents/com.statecraft.unity-postmerge.plist
+plutil -lint ~/Library/LaunchAgents/com.statecraft.unity-postmerge.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.statecraft.unity-postmerge.plist
+```
+
+`@REPO@` is the main checkout: the launcher only fetches there and clones its Library once. A change to the launcher
+itself needs the `cp` again; a change to `unity_postmerge.py` does not.
+
+Uninstall: `launchctl bootout gui/$(id -u)/com.statecraft.unity-postmerge`, then delete the plist. To remove the
+worktree too: `git worktree remove --force ~/.cache/statecraft/unity-postmerge/worktree`. A trial without opening an
+issue or moving the state: `uv run tools/unity_postmerge.py --dry-run --home <scratch folder>`.

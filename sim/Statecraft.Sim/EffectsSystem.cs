@@ -46,7 +46,7 @@ namespace Statecraft.Sim
             // Read every source before writing anything, so effect order cannot change results.
             var v = c.At(s.Date);
             var targets = v.Effects.ToDictionary(e => e.Id, e =>
-                e.K * (s.Policies.TryGetValue(e.Source, out var p) ? p : s.Indicators[e.Source]) * Multiplier(c, s, e.Office));
+                e.K * Source(s, e.Source) * Multiplier(c, s, e.Office));
             var moved = new HashSet<string>();
             foreach (var e in v.Effects)
             {
@@ -69,9 +69,23 @@ namespace Statecraft.Sim
             UpdateSituations(c, s, why);
         }
 
-        /// <summary>clamp(base + effect contributions) to [0, 1], before event shifts.</summary>
+        /// <summary>An effect's source level: a policy, an indicator, or the cities' employed share (R-CITY-005). The legacy
+        /// loop has no cities, so there the share reads 0 and the effect adds nothing (not 1, which would lift morale).</summary>
+        static double Source(GameState s, string id) =>
+            s.Policies.TryGetValue(id, out var p) ? p
+            : id == Cities.EmployedShareSource ? (s.Cities.Count == 0 ? 0.0 : Cities.EmployedShare(s))
+            : s.Indicators[id];
+
+        /// <summary>clamp(base + effect contributions) to [0, 1], before event shifts. In the GDD loop food_supply also carries
+        /// the Food stock's term (R-FOOD-003), exactly 0 at a full cover, and housing's base is the cities' people-weighted
+        /// mean condition when anybody is housed (R-HOUSE-004).</summary>
         internal static double Inner(Content c, GameState s, Indicator i) =>
-            Math.Max(0, Math.Min(1, i.Base + c.At(s.Date).Effects.Where(e => e.Target == i.Id).Sum(e => s.EffectContributions[e.Id])));
+            Math.Max(0, Math.Min(1, Base(c, s, i) + c.At(s.Date).Effects.Where(e => e.Target == i.Id).Sum(e => s.EffectContributions[e.Id])
+                + (i.Id == Pools.FoodIndicator ? Pools.FoodTerm(c, s) : 0.0)));
+
+        /// <summary>The indicator's base: model.yaml's, except housing's in the GDD loop (R-HOUSE-004).</summary>
+        static double Base(Content c, GameState s, Indicator i) =>
+            c.IsGdd && i.Id == Cities.HousingIndicator ? Cities.HousingLevel(s) ?? i.Base : i.Base;
 
         /// <summary>clamp(inner + event shift) to [0, 1].</summary>
         internal static double Level(Content c, GameState s, Indicator i) =>

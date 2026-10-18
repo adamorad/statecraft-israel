@@ -48,6 +48,7 @@ namespace Statecraft.Sim
         sealed class CitiesFile { public List<CityStart> Cities { get; set; } = new List<CityStart>(); }
         sealed class UnitTypesFile { public List<UnitType> Types { get; set; } = new List<UnitType>(); }
         sealed class SitesFile { public List<Site> Sites { get; set; } = new List<Site>(); }
+        sealed class ProjectsFile { public List<ProjectKind> Projects { get; set; } = new List<ProjectKind>(); }
         sealed class ObjectivesFile { public List<Objective> Objectives { get; set; } = new List<Objective>(); }
 
         public const string HexesFile = "map/hexes.json";
@@ -329,13 +330,17 @@ namespace Statecraft.Sim
             //   office                     the minister the event is delegated to
             //   from, to                   the window [from, to); it fires on the first turn that overlaps it
             //   conditions: [{ indicator, min, max }]   indicator bounds that must hold when it fires
-            //   requires: { event, option }   fires only once that other event was resolved (chosen or delegated)
-            //                              with that option; both ids must exist, an event cannot require itself and
-            //                              requirements cannot form a cycle (EventRules)
-            //   options: [{ id, text, historical, recommended, effects: [{ target, delta }], set_rung, set_policy }]
+            //   requires: [{ event, option } | { event, diverged: true }, ...]   fires only once every entry holds: that
+            //                              event was resolved (chosen or delegated) with that option, or with any option but
+            //                              its historical one (R-ALT-001, R-ALT-002); the ids must exist, an event cannot
+            //                              require itself and requirements cannot form a cycle (EventRules)
+            //   options: [{ id, text, historical, recommended, effects: [{ target, delta }], set_rung, set_policy,
+            //              grant_units: [{ type, n, at }], city_effects: [{ city, field, delta }] }]
             //   sources: [{ url, checked }], status
             //   objective                  the objective (objectives.yaml) whose completion card this is: it fires only once
             //                              that objective is recorded, and has exactly one option
+            //   site                       a swamp site (sites.yaml) whose works the event is about: in the GDD loop it
+            //                              fires only while that site is being worked; the legacy loop ignores it
             foreach (var rel in eventFiles.OrderBy(p => p, StringComparer.Ordinal))
             {
                 var e = Read<GameEvent>(readFile, rel);
@@ -354,8 +359,10 @@ namespace Statecraft.Sim
                 c.Cities = Read<CitiesFile>(readFile, "cities.yaml").Cities;
                 c.UnitTypes = Read<UnitTypesFile>(readFile, "unit_types.yaml").Types;
                 c.Sites = Read<SitesFile>(readFile, "sites.yaml").Sites;   // sourced facts (Phase 1 PR 5)
+                c.ProjectKinds = Read<ProjectsFile>(readFile, "projects.yaml").Projects;   // design values (Phase 3 PR 4)
                 ValidateGdd(c, settlementIds);
             }
+            EventRules.ValidateStructured(c);   // R-EFX-006: after the GDD records it names are read
             c.BuildWindows();
             c.Hash = HashOf(read);
             return c;
@@ -653,6 +660,9 @@ namespace Statecraft.Sim
             var parties = new HashSet<string>(c.Parties.Select(p => p.Id));
             var indicators = new HashSet<string>(c.Indicators.Select(i => i.Id));
             var sources = new HashSet<string>(c.Policies.Select(p => p.Id).Concat(indicators));
+            // The cities' employed share (R-CITY-005). Accepted in both loops, so the real content still loads with the loop
+            // switch taken out (Unity's SimBridgeGddTests.Legacy); with no cities it reads 0 (EffectsSystem.Source).
+            sources.Add(Cities.EmployedShareSource);
             Unique("offices.yaml", "offices", c.Offices.Select(o => o.Id));
             Unique("parties.yaml", "parties", c.Parties.Select(p => p.Id));
             Unique("people.yaml", "people", c.People.Select(p => p.Id));
@@ -680,10 +690,20 @@ namespace Statecraft.Sim
                 HebrewName("offices.yaml", $"offices[{o.Id}]", "title_he", o.TitleHe, o.TitleHeSources, o.TitleHeReview, o.TitleHeReviewGiven);
                 HebrewName("offices.yaml", $"offices[{o.Id}]", "title_he_f", o.TitleHeF, o.TitleHeFSources, o.TitleHeFReview, o.TitleHeFReviewGiven);
                 if (o.TitleHeF != "" && o.TitleHe == "") throw new ContentException("offices.yaml", $"offices[{o.Id}].title_he", "required: a feminine title_he_f needs the title_he beside it");
+                // The player can order a woman into any office, so a Hebrew title without its feminine form would show her the
+                // masculine one (owner on #861, 17 October 2026).
+                if (o.TitleHe != "" && o.TitleHeF == "") throw new ContentException("offices.yaml", $"offices[{o.Id}].title_he_f", $"required: office {o.Id} has a title_he, so it needs its feminine title_he_f beside it");
             }
             foreach (var p in c.Parties) HebrewName("parties.yaml", $"parties[{p.Id}]", "name_he", p.NameHe, p.NameHeSources, p.NameHeReview, p.NameHeReviewGiven);
             foreach (var l in c.Legislatures) HebrewName("legislatures.yaml", $"legislatures[{l.Id}]", "body_he", l.BodyHe, l.BodyHeSources, l.BodyHeReview, l.BodyHeReviewGiven);
             foreach (var g in c.Governments) HebrewName("governments.yaml", $"governments[{g.Id}]", "name_he", g.NameHe, g.NameHeSources, g.NameHeReview, g.NameHeReviewGiven);
+            // People keep their name_he sources in biography_sources (checked below), so only the review flag is checked here (#862).
+            foreach (var p in c.People)
+            {
+                if (p.NameHeReviewGiven && p.NameHeReview != HebrewReview.AgentChecked)
+                    throw new ContentException("people.yaml", $"people[{p.Id}].name_he_review", $"must be {HebrewReview.AgentChecked} (pending a native speaker's review, #564), or left out once a person has reviewed the name");
+                if (p.NameHeReviewGiven && p.NameHe == "") throw new ContentException("people.yaml", $"people[{p.Id}].name_he", "required: name_he_review is set but the name is empty");
+            }
             foreach (var a in c.Money)
             {
                 if (Array.IndexOf(PlayerText.MoneyIds, a.Id) < 0)
@@ -959,9 +979,43 @@ namespace Statecraft.Sim
         /// <summary>Facilities a city may have (cities.yaml facilities): the GDD's training places (D-D5).</summary>
         static readonly string[] Facilities = { "military_camp", "hakhshara" };
 
-        static void NotNegative(string file, string field, int v)
+        /// <summary>Where a unit type may train (unit_types.yaml facility): a start facility, or a city's completed industry
+        /// project (<see cref="Training.Industry"/>; R-CRAFT-001), which no city starts with.</summary>
+        static readonly string[] TrainingFacilities = Facilities.Concat(new[] { Training.Industry }).ToArray();
+
+        /// <summary>A military type's sides (unit_types.yaml side): units_1948.yaml's side ids (Q-START-4, owner, 15 October 2026).</summary>
+        static readonly string[] Sides = { "israel", "egypt", "jordan", "syria", "iraq", "lebanon", "ala", "local_arab_forces" };
+
+        /// <summary>A military type's classes (unit_types.yaml class; GDD Phase 5 plan, PR 2).</summary>
+        static readonly string[] Classes = { "infantry", "artillery", "armour" };
+
+        static readonly string[] CityStatuses = { "sourced", "derived", "wikipedia-only", "design" };
+        static readonly System.Text.RegularExpressions.Regex Month = new System.Text.RegularExpressions.Regex(@"^\d{4}-\d{2}\z");
+
+        /// <summary>R-CITY-006: a city value is present and has a known status; a sourced, derived or wikipedia-only value also
+        /// has sources, each with a url and a checked date, and the day (YYYY-MM-DD) or month (YYYY-MM) it describes.</summary>
+        static CityValue CityValueOf(string file, string at, CityValue? v)
         {
-            if (v < 0) throw new ContentException(file, field, "must be >= 0");
+            if (v == null) throw new ContentException(file, at, "required");
+            if (v.Status == "") throw new ContentException(file, at + ".status", "required");
+            if (!CityStatuses.Contains(v.Status))
+                throw new ContentException(file, at + ".status", $"unknown status '{v.Status}' (sourced, derived, wikipedia-only or design)");
+            for (int i = 0; i < v.Sources.Count; i++)
+                if (v.Sources[i] == null || string.IsNullOrWhiteSpace(v.Sources[i].Url) || v.Sources[i].Checked == default)
+                    throw new ContentException(file, FormattableString.Invariant($"{at}.sources[{i}]"), "needs a url and checked date");
+            if (v.Date != "" && !ReviewRecord.IsDay(v.Date)
+                && !(Month.IsMatch(v.Date) && DateTime.TryParseExact(v.Date, "yyyy-MM", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _)))
+                throw new ContentException(file, at + ".date", "must be YYYY-MM-DD or YYYY-MM");
+            if (v.Status == "design") return v;   // a design value may name what its method rests on, and needs no date
+            if (v.Sources.Count == 0) throw new ContentException(file, at + ".sources", $"required: a {v.Status} value needs a source");
+            if (v.Date == "") throw new ContentException(file, at + ".date", "required: the day or month the value describes");
+            return v;
+        }
+
+        static void Whole(string file, string at, CityValue v)
+        {
+            if (v.Value < 0 || v.Value != decimal.Truncate(v.Value) || v.Value > int.MaxValue)
+                throw new ContentException(file, at + ".value", "must be a whole number >= 0");
         }
 
         /// <summary>The GDD v0.1 city data and rules (Phase 1 PR 3), checked only when systems.loop is gdd.</summary>
@@ -974,20 +1028,39 @@ namespace Statecraft.Sim
             {
                 var at = $"cities[{x.Id}]";
                 if (!known.Contains(x.Id)) throw new ContentException(cf, at + ".id", $"is not in {SettlementsFileName}");
-                NotNegative(cf, at + ".housing_capacity", x.HousingCapacity);
-                NotNegative(cf, at + ".job_slots", x.JobSlots);
-                NotNegative(cf, at + ".civilians", x.Civilians);
-                NotNegative(cf, at + ".employed", x.Employed);
-                if (x.Employed > x.Civilians) throw new ContentException(cf, at + ".employed", "cannot be more than civilians");
-                if (x.Employed > x.JobSlots) throw new ContentException(cf, at + ".employed", "cannot be more than job_slots");
+                // R-CITY-006: every value is required (never read as 0) and says what it is.
+                Whole(cf, at + ".people", CityValueOf(cf, at + ".people", x.People));
+                var share = CityValueOf(cf, at + ".employed_share", x.EmployedShare);
+                if (share.Value < 0 || share.Value > 1) throw new ContentException(cf, at + ".employed_share.value", "must be a number from 0 to 1");
+                Whole(cf, at + ".housing_capacity", CityValueOf(cf, at + ".housing_capacity", x.Housing));
+                Whole(cf, at + ".job_slots", CityValueOf(cf, at + ".job_slots", x.Jobs));
                 foreach (var f in x.Facilities)
                     if (!Facilities.Contains(f)) throw new ContentException(cf, at + ".facilities", $"unknown facility '{f}' (military_camp or hakhshara)");
+                // R-PROJ-005: a resource is a fact about the city, so it is sourced like a sourced city value.
+                foreach (var r in x.Resources)
+                {
+                    var rat = $"{at}.resources[{r.Id}]";
+                    if (string.IsNullOrWhiteSpace(r.Id)) throw new ContentException(cf, rat + ".id", "is required");
+                    if (r.Sources.Count == 0) throw new ContentException(cf, rat + ".sources", "required: a resource needs a source");
+                    for (int i = 0; i < r.Sources.Count; i++)
+                        if (r.Sources[i] == null || string.IsNullOrWhiteSpace(r.Sources[i].Url) || r.Sources[i].Checked == default)
+                            throw new ContentException(cf, FormattableString.Invariant($"{rat}.sources[{i}]"), "needs a url and checked date");
+                }
             }
             Unique(uf, "types", c.UnitTypes.Select(x => x.Id));
             foreach (var x in c.UnitTypes)
             {
                 var at = $"types[{x.Id}]";
                 if (x.Kind != "population" && x.Kind != "unit") throw new ContentException(uf, at + ".kind", "must be population or unit");
+                // R-UNIT-001: a type with a side or a class is military, and needs both; the sides are units_1948.yaml's.
+                if (x.Side != "" || x.Class != "")
+                {
+                    if (x.Kind != "unit") throw new ContentException(uf, at + ".kind", "a military type is a unit");
+                    if (x.Side == "") throw new ContentException(uf, at + ".side", "required for a military type");
+                    if (x.Class == "") throw new ContentException(uf, at + ".class", "required for a military type");
+                    if (!Sides.Contains(x.Side)) throw new ContentException(uf, at + ".side", $"unknown side '{x.Side}' ({string.Join(", ", Sides)})");
+                    if (!Classes.Contains(x.Class)) throw new ContentException(uf, at + ".class", $"unknown class '{x.Class}' (infantry, artillery or armour)");
+                }
                 if (x.Facility == "")
                 {
                     // Training (R-TRAIN-001) needs a place to train; values without one would be read by nothing.
@@ -995,13 +1068,19 @@ namespace Statecraft.Sim
                     if (x.TrainingCost != 0) throw new ContentException(uf, at + ".training_cost", "only a type with a facility trains");
                     continue;
                 }
-                if (!Facilities.Contains(x.Facility)) throw new ContentException(uf, at + ".facility", $"unknown facility '{x.Facility}' (military_camp or hakhshara)");
+                if (!TrainingFacilities.Contains(x.Facility)) throw new ContentException(uf, at + ".facility", $"unknown facility '{x.Facility}' (military_camp, hakhshara or industry)");
+                // A trained count lands in City.Recruits or City.Craftsmen (R-TRAIN-003, R-CRAFT-001); other trained counts
+                // wait for their decisions.
+                if (x.Kind == "population" && x.Id != "recruit" && x.Id != Training.Craftsman)
+                    throw new ContentException(uf, at + ".kind", "only recruit and craftsman are trained counts");
+                // Q-CRAFT-1 (owner, 15 October 2026): a craftsman trains in a city with a completed industry project.
+                if (x.Id == Training.Craftsman && x.Facility != Training.Industry)
+                    throw new ContentException(uf, at + ".facility", "a craftsman trains at industry (Q-CRAFT-1)");
                 if (x.TrainingTurns < 1) throw new ContentException(uf, at + ".training_turns", "must be >= 1");
                 if (!(x.TrainingCost >= 0 && IsFinite(x.TrainingCost))) throw new ContentException(uf, at + ".training_cost", "must be a finite number >= 0");
-                // A trained count lands in City.Recruits (R-TRAIN-003); other trained counts wait for their decisions (D-D4).
-                if (x.Kind == "population" && x.Id != "recruit") throw new ContentException(uf, at + ".kind", "only recruit is a trained count until Phase 5");
             }
-            var cities = new HashSet<string>(c.Cities.Select(x => x.Id));
+            // R-CITY-003: the arrivals are spread over the cities, so there must be one to take them.
+            if (c.Cities.Count == 0) throw new ContentException(cf, "cities", "the GDD loop needs at least one city to take the arrivals");
             foreach (var (file, r) in new[] { ("rules.yaml", c.Rules) }.Concat(c.EraRules.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => ("rules/" + kv.Key + ".yaml", kv.Value))))
             {
                 var m = r.Mvp ?? throw new ContentException(file, "mvp", "required when eras.yaml systems.loop is gdd");
@@ -1011,13 +1090,66 @@ namespace Statecraft.Sim
                 if (m.PeoplePerUnit != c.Rules.Mvp!.PeoplePerUnit)
                     throw new ContentException(file, "mvp.people_per_unit", "must be the same in every era (arrivals are counted in one unit size)");
                 if (!(m.IncomePerJobPerYear >= 0 && IsFinite(m.IncomePerJobPerYear))) throw new ContentException(file, "mvp.income_per_job_per_year", "must be a finite number >= 0");
-                Unit(file, "mvp.cohesion_housing_weight", m.CohesionHousingWeight);
-                Unit(file, "mvp.cohesion_jobs_weight", m.CohesionJobsWeight);
-                if (Math.Abs(m.CohesionHousingWeight + m.CohesionJobsWeight - 1) > 1e-9)
-                    throw new ContentException(file, "mvp.cohesion_jobs_weight", "the two cohesion weights must sum to 1");
-                if (!cities.Contains(m.ArrivalsCity)) throw new ContentException(file, "mvp.arrivals_city", $"'{m.ArrivalsCity}' is not a city in cities.yaml");
+                // R-CRAFT-002 (GDD "Population and units": a craftsman "Generates more money than an ordinary civilian"): a missing key reads 0 and is refused.
+                if (!(m.CraftsmanIncomeMultiple > 1 && IsFinite(m.CraftsmanIncomeMultiple)))
+                    throw new ContentException(file, "mvp.craftsman_income_multiple", "must be a finite number > 1");
+                // R-MONEY-002: explicit values keep an omitted kind from silently becoming free upkeep.
+                foreach (var (key, v) in new[] {
+                    ("city_upkeep_per_year", m.CityUpkeepPerYear), ("housing_upkeep_per_year", m.HousingUpkeepPerYear),
+                    ("industry_upkeep_per_year", m.IndustryUpkeepPerYear), ("transit_camp_upkeep_per_year", m.TransitCampUpkeepPerYear),
+                    ("military_camp_upkeep_per_year", m.MilitaryCampUpkeepPerYear), ("hakhshara_upkeep_per_year", m.HakhsharaUpkeepPerYear) })
+                {
+                    if (v == null) throw new ContentException(file, "mvp." + key, "required when eras.yaml systems.loop is gdd");
+                    if (!(v >= 0 && IsFinite(v.Value))) throw new ContentException(file, "mvp." + key, "must be a finite number >= 0");
+                }
+                // R-CITY-003: the cities count arrivals from one day; another day in a later era would lose or double-count units.
+                if (m.CityArrivalsFrom == default) throw new ContentException(file, "mvp.city_arrivals_from", "required when eras.yaml systems.loop is gdd");
+                if (m.CityArrivalsFrom != c.Rules.Mvp!.CityArrivalsFrom) throw new ContentException(file, "mvp.city_arrivals_from", "must be the same in every era (the cities count arrivals from one day)");
                 if (m.BuildYishuvTurns < 1) throw new ContentException(file, "mvp.build_yishuv_turns", "must be >= 1");
                 if (!(m.BuildYishuvCost >= 0 && IsFinite(m.BuildYishuvCost))) throw new ContentException(file, "mvp.build_yishuv_cost", "must be a finite number >= 0");
+                // R-CAMP-001: required, so a missing key is not read as 0 (a camp built at once, or for nothing).
+                if (m.BuildCampTurns == null) throw new ContentException(file, "mvp.build_camp_turns", "required when eras.yaml systems.loop is gdd");
+                if (m.BuildCampTurns < 1) throw new ContentException(file, "mvp.build_camp_turns", "must be >= 1");
+                if (m.BuildCampCost == null) throw new ContentException(file, "mvp.build_camp_cost", "required when eras.yaml systems.loop is gdd");
+                if (!(m.BuildCampCost >= 0 && IsFinite(m.BuildCampCost.Value))) throw new ContentException(file, "mvp.build_camp_cost", "must be a finite number >= 0");
+                if (m.PlowFieldsTurns < 1) throw new ContentException(file, "mvp.plow_fields_turns", "must be >= 1");
+                if (m.PlowFieldsCost == null) throw new ContentException(file, "mvp.plow_fields_cost", "required when eras.yaml systems.loop is gdd");
+                if (!(m.PlowFieldsCost >= 0 && IsFinite(m.PlowFieldsCost.Value))) throw new ContentException(file, "mvp.plow_fields_cost", "must be a finite number >= 0");
+                // R-SWAMP-001: required, so a missing key is not read as 0 (a swamp drained at once, or for nothing).
+                if (m.DrySwampTurns == null) throw new ContentException(file, "mvp.dry_swamp_turns", "required when eras.yaml systems.loop is gdd");
+                if (m.DrySwampTurns < 1) throw new ContentException(file, "mvp.dry_swamp_turns", "must be >= 1");
+                if (m.DrySwampCost == null) throw new ContentException(file, "mvp.dry_swamp_cost", "required when eras.yaml systems.loop is gdd");
+                if (!(m.DrySwampCost >= 0 && IsFinite(m.DrySwampCost.Value))) throw new ContentException(file, "mvp.dry_swamp_cost", "must be a finite number >= 0");
+                if (m.FieldFoodPerTurn == null) throw new ContentException(file, "mvp.field_food_per_turn", "required when eras.yaml systems.loop is gdd");
+                if (m.FieldFoodPerTurn < 0) throw new ContentException(file, "mvp.field_food_per_turn", "must be >= 0");
+                // R-FOOD-001 to R-FOOD-003: required, so a missing key is never read as 0 (a stock term of 0, or no stock).
+                if (m.KFood == null) throw new ContentException(file, "mvp.k_food", "required when eras.yaml systems.loop is gdd");
+                if (!(m.KFood >= 0 && m.KFood <= 1)) throw new ContentException(file, "mvp.k_food", "must be between 0 and 1");
+                if (m.CoverMonths == null) throw new ContentException(file, "mvp.cover_months", "required when eras.yaml systems.loop is gdd");
+                if (m.CoverMonths < 1) throw new ContentException(file, "mvp.cover_months", "must be >= 1");
+                // R-VET-001, R-VET-002: required, so a missing key is not read as 0 (a veteran after no work, or one that builds nothing).
+                foreach (var (key, v) in new[] { ("veteran_halutz_service", m.VeteranHalutzService), ("veteran_progress", m.VeteranProgress) })
+                {
+                    if (v == null) throw new ContentException(file, "mvp." + key, "required when eras.yaml systems.loop is gdd");
+                    if (v < 1) throw new ContentException(file, "mvp." + key, "must be >= 1");
+                }
+                // R-HOUSE-001, R-HOUSE-002: required, so a missing key is never read as a condition of 0 or no loss.
+                if (m.HousingStartCondition == null) throw new ContentException(file, "mvp.housing_start_condition", "required when eras.yaml systems.loop is gdd");
+                Unit(file, "mvp.housing_start_condition", m.HousingStartCondition.Value);
+                if (m.OverflowConditionLoss == null) throw new ContentException(file, "mvp.overflow_condition_loss", "required when eras.yaml systems.loop is gdd");
+                Unit(file, "mvp.overflow_condition_loss", m.OverflowConditionLoss.Value);
+                // R-END-001, R-END-002: required, so a missing key is never read as 0 (a defeat with no debt, or on the first turn).
+                if (m.DefeatTurns == null) throw new ContentException(file, "mvp.defeat_turns", "required when eras.yaml systems.loop is gdd");
+                if (m.DefeatTurns < 1) throw new ContentException(file, "mvp.defeat_turns", "must be >= 1");
+                if (m.DebtCeiling == null) throw new ContentException(file, "mvp.debt_ceiling", "required when eras.yaml systems.loop is gdd");
+                if (!(m.DebtCeiling >= 0 && IsFinite(m.DebtCeiling.Value))) throw new ContentException(file, "mvp.debt_ceiling", "must be a finite number >= 0");
+                // R-EVT-003 (#107): required, so a missing key is never read as 0 (no floor, or a disloyal minister who does nothing).
+                if (m.DelegationLoyaltyFloor == null) throw new ContentException(file, "mvp.delegation_loyalty_floor", "required when eras.yaml systems.loop is gdd");
+                if (m.DelegationLoyaltyFloor < 0 || m.DelegationLoyaltyFloor > 10) throw new ContentException(file, "mvp.delegation_loyalty_floor", "must be 0-10");
+                if (m.DisloyalEffectShare == null) throw new ContentException(file, "mvp.disloyal_effect_share", "required when eras.yaml systems.loop is gdd");
+                Unit(file, "mvp.disloyal_effect_share", m.DisloyalEffectShare.Value);
+                if (c.Indicators.All(i => i.Id != Pools.FoodIndicator))
+                    throw new ContentException(file, "mvp.k_food", "the Food stock feeds the food_supply indicator, which model.yaml must define");
                 // One game has one last day (R-LOOP-004): an era cannot move it.
                 if (m.End != c.Rules.Mvp!.End) throw new ContentException(file, "mvp.end", "must be the same in every era (the game has one end)");
                 // R-OBJ-002. Required, so a missing key is not read as 0. Zero is allowed (a balance choice); a negative value
@@ -1028,11 +1160,59 @@ namespace Statecraft.Sim
                     if (v < 0) throw new ContentException(file, "mvp." + key, "must be >= 0");
                 }
             }
+            // R-CITY-007: the units the sim starts from, in the one unit size of every era (checked above).
+            foreach (var x in c.Cities)
+            {
+                var ppu = c.Rules.Mvp!.PeoplePerUnit;
+                x.Civilians = Cities.StartUnits(x.People!.Value, ppu);
+                x.Employed = Cities.NearestUnit(x.People.Value * x.EmployedShare!.Value, ppu);
+                x.HousingCapacity = (int)x.Housing!.Value;
+                x.JobSlots = (int)x.Jobs!.Value;
+                if (x.Employed > x.JobSlots)
+                    throw new ContentException(cf, $"cities[{x.Id}].job_slots.value", FormattableString.Invariant($"is fewer than the {x.Employed} employed units of people times employed_share"));
+            }
             // Strictly before the last era's end: an end on it is the era's own end, and the game would be over as era_ended.
             if (c.Rules.Mvp!.End is DateTime end && (end <= c.Rules.Start || end >= c.Eras[c.Eras.Count - 1].To))
                 throw new ContentException("rules.yaml", "mvp.end", FormattableString.Invariant($"must be after start ({c.Rules.Start:yyyy-MM-dd}) and before the last era's end ({c.Eras[c.Eras.Count - 1].To:yyyy-MM-dd})"));
             ValidateSites(c);
             ValidateObjectiveSites(c);
+            ValidateEventSites(c);
+            ValidateProjects(c);
+        }
+
+        /// <summary>An event's site (R-SWAMP-002): a designated swamp site, whose works the event is about. Only the GDD loop
+        /// reads sites.yaml, so only it can check this; the legacy loop ignores the key.</summary>
+        static void ValidateEventSites(Content c)
+        {
+            foreach (var e in c.Events.Where(e => e.Site != ""))
+            {
+                var site = c.Sites.FirstOrDefault(x => x.Id == e.Site)
+                    ?? throw new ContentException(e.File, $"events[{e.Id}].site", $"unknown site '{e.Site}' (sites.yaml)");
+                if (!site.Kinds.Contains(Projects.SwampKind))
+                    throw new ContentException(e.File, $"events[{e.Id}].site", $"site '{e.Site}' is not a swamp site (sites.yaml kinds)");
+            }
+        }
+
+        /// <summary>The city project kinds (projects.yaml, R-PROJ-001): unique ids, a name, a cost and turns, and what each adds.
+        /// The values are design values (Q-PROJ-1); the checks keep a typo from building a project that never finishes, costs
+        /// less than nothing or moves a condition out of its 0 to 1 scale in one step.</summary>
+        static void ValidateProjects(Content c)
+        {
+            const string pf = "projects.yaml";
+            Unique(pf, "projects", c.ProjectKinds.Select(x => x.Id));
+            foreach (var x in c.ProjectKinds)
+            {
+                var at = $"projects[{x.Id}]";
+                if (string.IsNullOrWhiteSpace(x.Name)) throw new ContentException(pf, at + ".name", "is required");
+                if (!(x.Cost >= 0 && !double.IsInfinity(x.Cost))) throw new ContentException(pf, at + ".cost", "must be a finite non-negative number");
+                if (x.Turns < 1) throw new ContentException(pf, at + ".turns", "must be at least 1");
+                if (x.Capacity < 0) throw new ContentException(pf, at + ".capacity", "must not be negative");
+                if (x.JobSlots < 0) throw new ContentException(pf, at + ".job_slots", "must not be negative");
+                if (!(x.Condition >= -1 && x.Condition <= 1)) throw new ContentException(pf, at + ".condition", "must be a number from -1 to 1");
+                // R-PROJ-005: a kind whose resource no city has could never be built.
+                if (!string.IsNullOrEmpty(x.Requires) && !c.Cities.Any(k => k.Resources.Any(r => r.Id == x.Requires)))
+                    throw new ContentException(pf, at + ".requires", $"no city in cities.yaml has the resource '{x.Requires}'");
+            }
         }
 
         /// <summary>An objective's site (R-OBJ-001): a designated site of kind yishuv, whose sourced founding date is the
@@ -1043,7 +1223,8 @@ namespace Statecraft.Sim
             foreach (var o in c.Objectives)
             {
                 var at = $"objectives[{o.Id}]";
-                var id = o.CompletesWhen!.SiteBuilt;   // EventRules requires it
+                if (o.CompletesWhen!.Absorbed != null) continue;   // R-OBJ-004 has no site; the GDD loop always has cities
+                var id = o.CompletesWhen.SiteBuilt;   // EventRules requires one kind
                 var site = c.Sites.FirstOrDefault(x => x.Id == id)
                     ?? throw new ContentException(ObjectivesFileName, at + ".completes_when.site_built", $"unknown site '{id}' (sites.yaml)");
                 if (!site.Kinds.Contains(Projects.YishuvKind))
@@ -1054,8 +1235,10 @@ namespace Statecraft.Sim
             }
         }
 
-        /// <summary>What a designated site may be built as (sites.yaml kinds). Phase 1 has "build yishuv" only.</summary>
-        static readonly string[] SiteKinds = { Projects.YishuvKind };
+        /// <summary>What a designated site may be built as (sites.yaml kinds; R-SITE-004, the GDD's pioneer actions and D-D5's two
+        /// facilities). A camp site is a military_camp or a hakhshara (Q-CAMP-3).</summary>
+        static readonly string[] SiteKinds = { Projects.YishuvKind, "field", "swamp", "military_camp", "hakhshara" };
+        static readonly string[] CampKinds = { "military_camp", "hakhshara" };
 
         /// <summary>The designated sites (sites.yaml, Phase 1 PR 5): sourced facts on a land hex that holds no 1948 settlement,
         /// founded inside the MVP's years (D-B1). The armistice line hexes are not checked: that file is display only, and a
@@ -1066,6 +1249,7 @@ namespace Statecraft.Sim
             Unique(sf, "sites", c.Sites.Select(x => x.Id));
             var from = new DateTime(1948, 5, 15);
             var to = new DateTime(1952, 1, 1);
+            var yishuvAt = new Dictionary<(int, int), string>();
             foreach (var x in c.Sites)
             {
                 var at = $"sites[{x.Id}]";
@@ -1077,10 +1261,40 @@ namespace Statecraft.Sim
                 var settled = c.SettlementHexes.FirstOrDefault(h => h.Q == x.Q && h.R == x.R);
                 if (settled != null)
                     throw new ContentException(sf, at + ".q", FormattableString.Invariant($"hex q={x.Q} r={x.R} holds the 1948 settlement {settled.Id} ({SettlementHexesFileName})"));
+                if (x.Kinds.Count == 0) throw new ContentException(sf, at + ".kinds", "required: one or more of " + string.Join(", ", SiteKinds));
                 foreach (var k in x.Kinds)
-                    if (!SiteKinds.Contains(k)) throw new ContentException(sf, at + ".kinds", $"unknown kind '{k}' (yishuv)");
-                if (x.Founded < from || x.Founded >= to)
-                    throw new ContentException(sf, at + ".founded", "required, between 15 May 1948 and 31 December 1951 (the MVP's years, D-B1)");
+                    if (!SiteKinds.Contains(k)) throw new ContentException(sf, at + ".kinds", $"unknown kind '{k}' ({string.Join(", ", SiteKinds)})");
+                // R-FIELD-001: a field site's built record is its plowed state, so a built yishuv on it would yield Food. Only that
+                // pair is refused; other kinds may share a field site.
+                if (x.Kinds.Contains(Projects.FieldKind) && x.Kinds.Contains(Projects.YishuvKind))
+                    throw new ContentException(sf, at + ".kinds", "a field site cannot also be a yishuv site (its built record is its plowed state)");
+                // R-SWAMP-001 (Q-SWAMP-1): the same for a swamp, which drained gives a field site in its hex, to be plowed.
+                if (x.Kinds.Contains(Projects.FieldKind) && x.Kinds.Contains(Projects.SwampKind))
+                    throw new ContentException(sf, at + ".kinds", "a field site cannot also be a swamp site (its built record is its plowed state)");
+                // R-SWAMP-001: nor a yishuv or camp site, whose build would write the same record and so drain the swamp.
+                if (x.Kinds.Contains(Projects.SwampKind))
+                    foreach (var k in CampKinds.Prepend(Projects.YishuvKind))
+                        if (x.Kinds.Contains(k))
+                            throw new ContentException(sf, at + ".kinds", $"a swamp site cannot also be a {k} site (its built record is its drained state)");
+                if (x.Kinds.Contains(Projects.YishuvKind))
+                {
+                    // R-SITE-005 (Q-SITE-3): one yishuv per hex, so SettlementPlacer keeps one kit per hex; other kinds may share it.
+                    if (yishuvAt.TryGetValue((x.Q, x.R), out var first))
+                        throw new ContentException(sf, at + ".q", FormattableString.Invariant($"hex q={x.Q} r={x.R} already holds the yishuv site {first}"));
+                    yishuvAt[(x.Q, x.R)] = x.Id;
+                    if (x.Founded < from || x.Founded >= to)
+                        throw new ContentException(sf, at + ".founded", "required, between 15 May 1948 and 31 December 1951 (the MVP's years, D-B1)");
+                }
+                else if (x.Founded != default)
+                    throw new ContentException(sf, at + ".founded", "only a yishuv site has a founding date");
+                // Q-CAMP-1: a camp belongs to one city, which a built camp gives the facility to.
+                if (x.Kinds.Any(k => CampKinds.Contains(k)))
+                {
+                    if (string.IsNullOrWhiteSpace(x.City)) throw new ContentException(sf, at + ".city", "required for a camp site (military_camp, hakhshara)");
+                    if (!c.Cities.Any(y => y.Id == x.City)) throw new ContentException(sf, at + ".city", $"unknown city '{x.City}' (cities.yaml)");
+                }
+                else if (x.City != "")
+                    throw new ContentException(sf, at + ".city", "only a camp site has a city");
                 if (x.Sources.Count == 0) throw new ContentException(sf, at + ".sources", "required: a designated site is a historical fact");
                 for (int i = 0; i < x.Sources.Count; i++)
                     if (x.Sources[i] == null || string.IsNullOrWhiteSpace(x.Sources[i].Url) || x.Sources[i].Checked == default)

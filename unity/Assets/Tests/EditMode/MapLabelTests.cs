@@ -340,6 +340,133 @@ public class MapLabelTests
         finally { labels.Dispose(); hd.Dispose(); }
     }
 
+    /// <summary>Owner, 18 October 2026, on #710 ("Accept as shipped"): tiers 1 to 9, doubling from 1,000 people. 999 is
+    /// tier 1, 1,000 tier 2, 128,000 and up tier 9.</summary>
+    [Test]
+    public void PopulationTierBoundariesDoubleFromOneThousandAndCapAtNine()
+    {
+        Assert.AreEqual(1, MapLabelsPresenter.Tier(999)); Assert.AreEqual(2, MapLabelsPresenter.Tier(1000));
+        Assert.AreEqual(2, MapLabelsPresenter.Tier(1999)); Assert.AreEqual(3, MapLabelsPresenter.Tier(2000));
+        Assert.AreEqual(8, MapLabelsPresenter.Tier(127999)); Assert.AreEqual(9, MapLabelsPresenter.Tier(128000));
+        Assert.AreEqual(9, MapLabelsPresenter.Tier(248459));
+    }
+
+    /// <summary>Owner, 18 October 2026, on #710 ("Keep tier 1 from 350"): Rosh Pinna's badge comes from its May 1948 figure
+    /// of 350, which is Hebrew Wikipedia only (CBS lists no population), so the data marks it wikipedia-only.</summary>
+    [Test]
+    public void RoshPinnaKeepsTierOneFromItsWikipediaOnlyFigure()
+    {
+        var roshPinna = Statecraft.Sim.ContentLoader.Load(Statecraft.Game.Paths.Content).Cities.Single(c => c.Id == "rosh_pinna");
+        var people = roshPinna.People ?? throw new AssertionException("Rosh Pinna has no population figure");
+        Assert.AreEqual("wikipedia-only", people.Status);
+        Assert.AreEqual(350m, people.Value); Assert.AreEqual("1948-05", people.Date);
+        Assert.AreEqual(1, MapLabelsPresenter.Tier(people.Value));
+    }
+
+    /// <summary>Issue #710 (owner, 15 October 2026): a city's or town's pill starts with its static 1948 population tier, from
+    /// cities.yaml's people; a pill with no 1948 figure (an Arab town, a kibbutz, a locality) has no badge. The tiers double
+    /// from 1,000 (owner-approved, 18 October 2026), which gives eight distinct tiers across the twelve rows. The badge sits
+    /// inside its pill, at the left, before the name; with the pointer over Haifa's pill the tooltip explains the number.</summary>
+    [UnityTest]
+    public IEnumerator CitiesWearTheirStatic1948PopulationTier()
+    {
+        // The game's tooltip comes from map.tier (GameRoot); both languages format it with the tier, the count and the people.
+        var en = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.Strings).text);
+        var he = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.StringsHebrew).text, "strings.he.yaml");
+        Assert.AreEqual(MapLabelsPresenter.DefaultTierTip(8, 98618m), en.Format("map.tier", 8, MapLabelsPresenter.TierCount, "98,618"));
+        var heTip = he.Format("map.tier", 8, MapLabelsPresenter.TierCount, "98,618");
+        StringAssert.Contains("98,618", heTip); StringAssert.Contains("8", heTip); StringAssert.Contains("9", heTip);
+        Assert.IsTrue(UiDirection.RightToLeft(heTip), heTip + " reads right to left");
+        var cities = Statecraft.Sim.ContentLoader.Load(Statecraft.Game.Paths.Content).Cities;
+        var people = cities.Where(c => c.People != null).ToDictionary(c => c.Id, c => c.People!.Value);
+        Assert.AreEqual(12, people.Count, "the twelve city and town rows of cities.yaml");
+        Assert.AreEqual(8, people.Values.Select(MapLabelsPresenter.Tier).Distinct().Count(), "eight distinct tiers (#710)");
+        var hd = new HdPanel(cam);
+        var labels = new MapLabelsPresenter(hd.Root, map, cam, population: people);
+        try
+        {
+            Label? BadgeOf(string id) => labels.Slots.Single(x => x.name == "slot-" + id).Q<Label>(className: MapLabelsPresenter.TierClass);
+            string? Badge(string id) => BadgeOf(id)?.text;
+            Assert.AreEqual("9", Badge("tel_aviv")); Assert.AreEqual("8", Badge("haifa")); Assert.AreEqual("8", Badge("jerusalem"));
+            Assert.AreEqual("6", Badge("petah_tikva")); Assert.AreEqual("4", Badge("tiberias")); Assert.AreEqual("1", Badge("rosh_pinna"));
+            foreach (var s in map.Settlements.Where(s => !people.ContainsKey(s.Id))) Assert.IsNull(Badge(s.Id), s.Id + " has no 1948 figure: no badge");
+            foreach (var x in labels.LocalitySlots) Assert.IsNull(x.Q<Label>(className: MapLabelsPresenter.TierClass), x.name);
+            Assert.AreEqual("Haifa", labels.Labels.Single(l => l.name == "label-haifa").text, "the name itself is unchanged");
+
+            Pose(34.99, 32.80, 40000f);
+            yield return Settle(labels);
+            var haifa = labels.Labels.Single(l => l.name == "label-haifa");
+            Assert.IsTrue(Shown(labels.Slots.Single(x => x.name == "slot-haifa")), "Haifa is named at 40 km");
+            var pill = haifa.worldBound; var badge = BadgeOf("haifa")!.worldBound;
+            Assert.IsTrue(pill.Contains(badge.min) && pill.Contains(badge.max - Vector2.one * 0.01f), $"the badge {badge} lies inside its pill {pill}");
+            Assert.Less(badge.center.x, pill.center.x, "at the start of the name");
+            Assert.LessOrEqual(badge.xMax, pill.xMin + haifa.resolvedStyle.paddingLeft, "clear of the name's text");
+            var container = hd.Root.Q<VisualElement>(MapLabelsPresenter.ContainerName).worldBound.position;
+            labels.HoverAt(pill.center - container); yield return null;
+            Assert.AreEqual(Visibility.Visible, labels.Tooltip.style.visibility.value, "the pointer over Haifa's pill shows its tooltip");
+            Assert.AreEqual("Population tier 8 of 9: 98,618 people in 1948", labels.Tooltip.text);
+        }
+        finally { labels.Dispose(); hd.Dispose(); }
+    }
+
+    /// <summary>Owner decision on #897 (17 October 2026, "Yes, mirror it"): in the Hebrew UI the tier badge sits at the start of
+    /// the Hebrew name, which is the pill's right; inside the pill and clear of the name. The English pill keeps it on the left.
+    /// Pinned at every window size of InfoPanelLayoutTests and on one pill per anchor (Haifa centre, Safed right, Petah Tikva
+    /// left; owner review on #940): the badge's start edge sits 7 px (to within one screen pixel) inside the pill's start edge in both languages.</summary>
+    [UnityTest]
+    public IEnumerator InHebrewTheTierBadgeSitsOnTheRightOfThePill()
+    {
+        const float Inset = 7f;   // MapLabelsPresenter.TierInsetPx, the room Statecraft.uss ".map-label-with-tier" leaves
+        var people = Statecraft.Sim.ContentLoader.Load(Statecraft.Game.Paths.Content).Cities
+            .Where(c => c.People != null).ToDictionary(c => c.Id, c => c.People!.Value);
+        var failures = new System.Collections.Generic.List<string>();
+        var anchorsAt = new System.Collections.Generic.List<(string window, System.Collections.Generic.HashSet<string> anchors)>();   // one entry per window and language
+        int total = 0;
+        foreach (var (w, h) in InfoPanelLayoutTests.Windows)
+            foreach (var hebrew in new[] { true, false })
+            {
+                var hd = new HdPanel(cam, w, h);
+                if (hebrew) (hd.Root.Q("root") ?? hd.Root).AddToClassList(UiLanguage.HebrewClass);
+                var labels = new MapLabelsPresenter(hd.Root, map, cam, population: people, hebrew: hebrew);
+                string lang = hebrew ? "he" : "en"; int seen = 0;
+                var anchors = new System.Collections.Generic.HashSet<string>();
+                anchorsAt.Add(($"{w}x{h} {lang}", anchors));
+                try
+                {
+                    foreach (var (lon, lat) in new[] { (34.99, 32.80), (35.50, 32.96), (34.89, 32.09) })   // Haifa, Safed, Petah Tikva
+                    {
+                        Pose(lon, lat, 40000f);
+                        yield return Settle(labels);
+                        float screenPx = hd.Root.worldBound.width / w;   // one screen pixel in panel units
+                        foreach (var slot in labels.Slots.Where(Shown))
+                        {
+                            var b = slot.Q<Label>(className: MapLabelsPresenter.TierClass); if (b == null) continue;
+                            var name = slot.Q<Label>("label-" + slot.name.Substring("slot-".Length));
+                            Rect pill = name.worldBound, badge = b.worldBound; seen++;
+                            anchors.Add(name.GetClasses().Single(c => c.StartsWith("anchor-")));
+                            string at = $"{w}x{h} {lang} {slot.name}: pill {pill}, badge {badge}";
+                            if (!(pill.Contains(badge.min) && pill.Contains(badge.max - Vector2.one * 0.01f))) failures.Add(at + ": the badge leaves its pill");
+                            // worldBound snaps to the screen's pixels, so the inset is 7 px give or take one screen pixel (in panel units).
+                            float inset = hebrew ? pill.xMax - badge.xMax : badge.xMin - pill.xMin;
+                            if (Mathf.Abs(inset - Inset) > screenPx)
+                                failures.Add(at + $": the badge's {(hebrew ? "right" : "left")} edge is {inset:0.##} px inside the pill's, not {Inset} (+-{screenPx:0.##})");
+                            if (hebrew ? badge.xMin < pill.xMax - name.resolvedStyle.paddingRight : badge.xMax > pill.xMin + name.resolvedStyle.paddingLeft)
+                                failures.Add(at + ": the badge overlaps the name's text");
+                        }
+                    }
+                    total += seen;
+                    if (seen == 0) failures.Add($"{w}x{h} {lang}: no tier badge shown at all");
+                }
+                finally { labels.Dispose(); hd.Dispose(); }
+            }
+        TestContext.WriteLine($"{total} badges checked; anchors per window: {string.Join("; ", anchorsAt.Select(a => a.window + " = " + string.Join("/", a.anchors.OrderBy(x => x))))}");
+        Assert.IsEmpty(failures, string.Join("\n", failures));
+        // Each window and language must show a centre, a right and a left anchored pill (Haifa, Safed, Petah Tikva); a set pooled
+        // across windows would pass with one anchor missing at some window. No window is exempt: at today's window sizes declutter hides none of the three.
+        foreach (var (window, seenAnchors) in anchorsAt)
+            Assert.AreEqual(3, seenAnchors.Count, $"{window}: a centre, a right and a left anchored pill, saw {string.Join(", ", seenAnchors.OrderBy(x => x))}");
+    }
+
     /// <summary>Owner rulings 2026-10-11 and 2026-10-12: the 1948 localities are named by their 1948 names only at close zoom,
     /// with today's name in a tooltip only where a living place carries on. At 30 km over Beisan its pill reads "Beisan"
     /// and, with the pointer over it (the hit test Hover runs, in the layer's coordinates), the tooltip "Today: Beit She'an"

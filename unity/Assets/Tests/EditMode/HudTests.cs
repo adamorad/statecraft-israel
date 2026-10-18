@@ -33,6 +33,48 @@ public class HudTests
         Assert.AreEqual("", m.Treasury.Delta);                       // no previous turn yet
     }
 
+    /// <summary>#687: the plate's date is in the UI's language, through the date.* strings as the map's front-line date
+    /// (Control1948.LineDateText): "15 במאי 1948" in Hebrew, every month with its Hebrew name and no Latin letter.</summary>
+    [Test]
+    public void TheDatePlateIsInHebrewInTheHebrewUi()
+    {
+        var bridge = new SimBridge(GameSession.New(C, GoldenRun.Seed, Mode.Historical), He);
+        Assert.AreEqual("15 במאי 1948", HudModel.From(bridge, He).Date);
+        var months = new[] { "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני", "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר" };
+        for (int m = 1; m <= 12; m++)
+        {
+            bridge.State.Date = new System.DateTime(1950, m, 1);
+            var date = HudModel.From(bridge, He).Date;
+            Assert.AreEqual($"1 ב{months[m - 1]} 1950", date);
+            Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(date, "[A-Za-z]"), date);
+        }
+    }
+
+    /// <summary>#687: English is unchanged, PlayerText.Date's "15 May 1948" on every day of a leap year (every month, every
+    /// day number).</summary>
+    [Test]
+    public void TheDatePlateInEnglishIsUnchanged()
+    {
+        var bridge = NewBridge();
+        for (var d = new System.DateTime(1948, 1, 1); d.Year == 1948; d = d.AddDays(1))
+        {
+            bridge.State.Date = d;
+            Assert.AreEqual(PlayerText.Date(d), HudModel.From(bridge, Text).Date);
+        }
+    }
+
+    /// <summary>#687, fail-open check: a Hebrew strings file without a month's name does not fall back to English or show
+    /// nothing; the lookup throws naming the file and the key.</summary>
+    [Test]
+    public void AMissingMonthNameThrowsRatherThanShowingEnglish()
+    {
+        var yaml = AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.StringsHebrew).text;
+        var noMay = UiText.Parse(string.Join("\n", yaml.Split('\n').Where(l => !l.StartsWith("date.month_5:"))), "strings.he.yaml");
+        var e = Assert.Throws<System.Collections.Generic.KeyNotFoundException>(() =>
+            HudModel.From(new SimBridge(GameSession.New(C, GoldenRun.Seed, Mode.Historical), He), noMay));
+        StringAssert.Contains("date.month_5", e!.Message);
+    }
+
     /// <summary>T71: the top bar's Treasury is the net position, cash minus debt (HudModel.From; M3 plan: "with deficits
     /// borrowed, cash alone is always 0"). The sim keeps cash at 0 or above (R-MONEY-003), so a negative reading is debt,
     /// not a negative Treasury: after four monthly turns with no orders, 0 cash and the debt read as minus the debt.</summary>
@@ -46,6 +88,26 @@ public class HudTests
         var m = HudModel.From(bridge, Text);
         Assert.AreEqual(PlayerText.Money(C, "treasury", -bridge.State.Debt), m.Treasury.Value);
         StringAssert.Contains("-IL", m.Treasury.Value);
+    }
+
+    /// <summary>#681 (owner, 16 October 2026: "keep one top-bar figure and label it as net (cash minus debt)"): the Money
+    /// caption, and the tooltip that says it, read net in both languages; the value stays cash minus debt, so with debt
+    /// it reads negative.</summary>
+    [TestCase(false, "Money (net)")]
+    [TestCase(true, "כסף (נטו)")]
+    public void TheMoneyFigureIsLabelledNet(bool hebrew, string caption)
+    {
+        var text = hebrew ? He : Text;
+        var bridge = new SimBridge(GameSession.New(C, GoldenRun.Seed, Mode.Historical), text);
+        for (var i = 0; i < 4; i++) bridge.EndTurn();
+        Assert.Greater(bridge.State.Debt, 0.0, "precondition: something is borrowed");
+        using var ui = new UiTestKit();
+        new HudPresenter(ui.Root, bridge, text);
+        var meter = ui.Q<VisualElement>("meter-treasury");
+        Assert.AreEqual(caption, meter.Q<Label>(className: "meter-name").text);
+        StringAssert.StartsWith(caption + ":", meter.tooltip);
+        Assert.AreEqual(PlayerText.Money(C, "treasury", bridge.State.Treasury - bridge.State.Debt), ui.Q<Label>("treasury-value").text);
+        StringAssert.Contains("-IL", ui.Q<Label>("treasury-value").text);
     }
 
     // ---- The score (#380): only in the GDD loop, from GameState.Score ----
@@ -89,6 +151,55 @@ public class HudTests
         bridge.State.Score = 150;
         hud.Render();
         Assert.AreEqual("Score 150", label.text);
+    }
+
+    // ---- Social cohesion (#380): a resource meter, only in the GDD loop, from the morale indicator ----
+
+    /// <summary>The owner's ruling of 15 October 2026 (#380): Social cohesion on the top bar as a resource meter, in the GDD
+    /// loop. Its value is the morale indicator (R-NAT-001) on the 0-100 scale, as the other 0..1 meters; after a turn it
+    /// shows the change, and its tooltip says both, under the caption the bar shows (Hebrew: לכידות חברתית).</summary>
+    [Test]
+    public void TheGddGameShowsSocialCohesion()
+    {
+        using var ui = new UiTestKit();
+        var bridge = GddBridge();
+        using var hud = new HudPresenter(ui.Root, bridge, Text);
+        var meter = ui.Q<VisualElement>("meter-cohesion");
+        Assert.AreEqual(DisplayStyle.Flex, meter.style.display.value, "shown in the GDD loop");
+        Assert.AreEqual("Social cohesion", meter.Q<Label>(className: "meter-name").text);
+        Assert.AreEqual("rings", meter.Q<UiIcon>().Glyph);
+        Assert.Greater(bridge.State.Indicators["morale"], 0.0, "precondition: the indicator starts at its base");
+        Assert.AreEqual(PlayerText.Percent(bridge.State.Indicators["morale"]), ui.Q<Label>("cohesion-value").text);
+        Assert.AreEqual("", ui.Q<Label>("cohesion-delta").text, "no change before the first turn");
+        Assert.AreEqual($"Social cohesion: {PlayerText.Percent(bridge.State.Indicators["morale"])}", meter.tooltip);
+        bridge.EndTurn();
+        var prev = bridge.Session.Previous!; var now = bridge.State;
+        now.Indicators["morale"] = 0.634; prev.Indicators["morale"] = 0.584;         // 58% -> 63%: up 5 points
+        hud.Render();
+        Assert.AreEqual("63%", ui.Q<Label>("cohesion-value").text);
+        Assert.AreEqual("+5%", ui.Q<Label>("cohesion-delta").text);
+        Assert.IsTrue(ui.Q<Label>("cohesion-delta").ClassListContains("delta-up"));
+        Assert.AreEqual("Social cohesion: 63%, up 5 points since last turn", meter.tooltip);
+        now.Indicators["morale"] = 0.574;                                     // 58% -> 57%: down 1 point
+        hud.Render();
+        Assert.AreEqual("-1%", ui.Q<Label>("cohesion-delta").text);
+        Assert.IsTrue(ui.Q<Label>("cohesion-delta").ClassListContains("delta-down"));
+        Assert.AreEqual("Social cohesion: 57%, down 1 point since last turn", meter.tooltip);
+        using var heUi = new UiTestKit();
+        using var heHud = new HudPresenter(heUi.Root, GddBridge(), He);
+        Assert.AreEqual("לכידות חברתית", heUi.Q<VisualElement>("meter-cohesion").Q<Label>(className: "meter-name").text);
+        StringAssert.StartsWith("לכידות חברתית: ", heUi.Q<VisualElement>("meter-cohesion").tooltip);
+    }
+
+    /// <summary>The legacy loop has no Social cohesion (its cities do not exist): the meter is hidden, as the score is.</summary>
+    [Test]
+    public void TheLegacyLoopShowsNoSocialCohesion()
+    {
+        SimBridge LegacyBridge() => new SimBridge(GameSession.New(SimBridgeGddTests.Legacy, GoldenRun.Seed, Mode.Historical), Text);
+        using var ui = new UiTestKit();
+        using var hud = new HudPresenter(ui.Root, LegacyBridge(), Text);
+        Assert.AreEqual(DisplayStyle.None, ui.Q<VisualElement>("meter-cohesion").style.display.value);
+        Assert.AreEqual("", ui.Q<Label>("cohesion-value").text);
     }
 
     [Test]
@@ -360,6 +471,28 @@ public class HudTests
         Assert.AreEqual("Not done: The turn could not run. Your orders were cleared. Give them again.", ui.Q<Label>("toast").text);   // "boom": the log only (#622)
     }
 
+    /// <summary>#912: the sim and autosave have advanced before End Turn notifies presenters. A broken presenter is
+    /// logged, but cannot leave every subscriber registered after it showing the previous turn.</summary>
+    [Test]
+    public void AThrowingEndTurnSubscriberDoesNotStopTheOthers()
+    {
+        var bridge = NewBridge();
+        var changed = 0;
+        var ended = 0;
+        bridge.Changed += () => throw new System.InvalidOperationException("changed presenter failed");
+        bridge.Changed += () => changed++;
+        bridge.TurnEnded += _ => throw new System.InvalidOperationException("turn-ended presenter failed");
+        bridge.TurnEnded += _ => ended++;
+        LogAssert.Expect(LogType.Exception, new System.Text.RegularExpressions.Regex("changed presenter failed"));
+        LogAssert.Expect(LogType.Exception, new System.Text.RegularExpressions.Regex("turn-ended presenter failed"));
+
+        Assert.DoesNotThrow(() => bridge.EndTurn());
+
+        Assert.AreEqual(1, bridge.State.Turn, "the simulation stepped exactly once");
+        Assert.AreEqual(1, changed, "later Changed subscribers still refresh");
+        Assert.AreEqual(1, ended, "later TurnEnded subscribers still run");
+    }
+
     /// <summary>Playtest 1, item 11: pressing the open screen's button closes it, every time, with every presenter
     /// GameRoot creates listening, with the button focused (as after a mouse click), and across End Turn.</summary>
     [Test]
@@ -453,6 +586,7 @@ public class HudTests
         ("SettlementKits.cs", "DefaultHouses = 100f", "the owner's symbolic scale for houses and trees (100x real size), not a displayed number"),
         ("RouteLayer.cs", "CorridorMarginM = 100f", "a clearance in map metres that kit buildings and trees keep from a route (geometry, not a displayed number)"),
         ("CameraController.cs", "PixelsPerNotch = 100f", "wheel pixels in one mouse notch, to scale the browser's wheel events (input, not a displayed number)"),
+        ("WildlifeLayer.cs", "MinimumCliffElevationM = 100f", "a real elevation in metres an ibex hex must reach (placement, not a displayed number)"),
     };
 
     [Test]
@@ -477,13 +611,14 @@ public class HudTests
 
     /// <summary>Fix round 1, M3: the top-bar captions are the content names. Since #622 they are in the sentence case the
     /// content and the rest of the strings use, so a caption is the content name as written (it was Title Case before);
-    /// Immigration and Public support are UI quantities with no content name.</summary>
+    /// Immigration and Public support are UI quantities with no content name. Money carries "(net)" after its name: the top
+    /// bar shows cash minus debt (#681, owner, 16 October 2026), where the content name, as the causes use it, is cash.</summary>
     [Test]
     public void TopBarCaptionsAreTheContentNames()
     {
         using var ui = new UiTestKit();
         string Caption(string meter) => ui.Q<VisualElement>(meter).Q<Label>(className: "meter-name").text;
-        Assert.AreEqual(PlayerText.Target(C, "treasury"), Caption("meter-treasury"));
+        Assert.AreEqual(PlayerText.Target(C, "treasury") + " (net)", Caption("meter-treasury"));
         Assert.AreEqual(PlayerText.Target(C, "security"), Caption("meter-security"));
         Assert.AreEqual(PlayerText.Target(C, "intl_standing"), Caption("meter-standing"));
         Assert.AreEqual(PlayerText.Target(C, "fx_reserves"), Caption("meter-fx"));
@@ -533,7 +668,7 @@ public class HudTests
         Assert.AreEqual(1, m.Security.Sign);
     }
 
-    static readonly string[] MeterIds = { "treasury", "immigration", "security", "support", "standing", "fx" };
+    static readonly string[] MeterIds = { "treasury", "immigration", "security", "support", "cohesion", "standing", "fx" };
     static string Inv(System.FormattableString f) => System.FormattableString.Invariant(f);
     static UiText He => UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.Strings.Replace("strings.en.yaml", "strings.he.yaml")).text, "strings.he.yaml");
 
@@ -554,7 +689,7 @@ public class HudTests
         using var ui = new UiTestKit();
         var bridge = NewBridge();
         var hud = new HudPresenter(ui.Root, bridge, Text);
-        Assert.AreEqual("Money: IL 20.0 million", ui.Q<VisualElement>("meter-treasury").tooltip);           // turn 0: no change
+        Assert.AreEqual("Money (net): IL 20.0 million", ui.Q<VisualElement>("meter-treasury").tooltip);           // turn 0: no change
         Assert.AreEqual("Foreign currency: $40.0 million", ui.Q<VisualElement>("meter-fx").tooltip);
         Assert.AreEqual("Security: 30%", ui.Q<VisualElement>("meter-security").tooltip);
         bridge.EndTurn();
@@ -566,7 +701,7 @@ public class HudTests
         hud.Render();
         var net = System.Math.Round(now.Treasury - now.Debt, 1, System.MidpointRounding.AwayFromZero);
         Assert.Greater(net, 0, "the test expects a positive net position after one turn");
-        Assert.AreEqual(Inv($"Money: IL {net:0.0} million, down IL 1.4 million since last turn"), ui.Q<VisualElement>("meter-treasury").tooltip);
+        Assert.AreEqual(Inv($"Money (net): IL {net:0.0} million, down IL 1.4 million since last turn"), ui.Q<VisualElement>("meter-treasury").tooltip);
         Assert.AreEqual(Inv($"Foreign currency: ${now.FxReserves:0.0} million, up $2.0 million since last turn"), ui.Q<VisualElement>("meter-fx").tooltip);
         Assert.AreEqual($"Security: {ui.Q<Label>("security-value").text}, up 5 points since last turn", ui.Q<VisualElement>("meter-security").tooltip);
         Assert.AreEqual($"International support: {ui.Q<Label>("standing-value").text}, down 1 point since last turn", ui.Q<VisualElement>("meter-standing").tooltip);
@@ -626,8 +761,8 @@ public class HudTests
         new HudPresenter(ui.Root, bridge, he);
         var said = ui.Q<VisualElement>("meter-treasury").tooltip;
         // The values carry left-to-right marks (U+200E, #543), so the minus stays on the left of "IL" in a right-to-left line.
-        Assert.AreEqual("כסף: \u200E-IL \u200E\u200E3.0\u200E מיליון, קיטון של \u200EIL \u200E\u200E4.0\u200E מיליון מאז התור הקודם", said);
-        Assert.AreEqual("כסף: -IL 3.0 מיליון, קיטון של IL 4.0 מיליון מאז התור הקודם", said.Replace("\u200E", ""));
+        Assert.AreEqual("כסף (נטו): \u200E-IL \u200E\u200E3.0\u200E מיליון, קיטון של \u200EIL \u200E\u200E4.0\u200E מיליון מאז התור הקודם", said);
+        Assert.AreEqual("כסף (נטו): -IL 3.0 מיליון, קיטון של IL 4.0 מיליון מאז התור הקודם", said.Replace("\u200E", ""));
         foreach (var id in MeterIds)
         {
             var tip = ui.Q<VisualElement>("meter-" + id).tooltip;

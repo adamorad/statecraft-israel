@@ -431,7 +431,7 @@ public class UiLayoutTests
     }
 
     /// <summary>A button's text fits its content box: on one line, or wrapped (white-space normal) within its height.</summary>
-    static bool TextFits(TextElement b)
+    internal static bool TextFits(TextElement b)
     {
         var box = b.contentRect;
         var natural = b.MeasureTextSize(b.text, 0, VisualElement.MeasureMode.Undefined, 0, VisualElement.MeasureMode.Undefined);
@@ -451,7 +451,7 @@ public class UiLayoutTests
     };
 
     /// <summary>Decision cards (2026-10-13), after Task 24 review I2: every real event, the tallest included, fits the
-    /// decision layer at every window shape, the narrow two- and three-row HUDs included: the card is centred, at most
+    /// decision layer at every window shape, the narrow two- and three-row HUDs included: the card is centred (between the layer's paddings), at most
     /// 1040 px wide, below the top bar and inside the layer; its option buttons stay inside it with their text; and its
     /// media header is 16:9 whenever the card has the height for it (on a full card it gives way first, as before).</summary>
     [UnityTest]
@@ -488,6 +488,8 @@ public class UiLayoutTests
                     var g = GameSession.New(C, GoldenRun.Seed, Mode.Historical);
                     g.State.Date = e.From;                       // the text names the office holders of the event's own time
                     g.State.PendingEvents.Clear(); g.State.PendingEvents.Add(e.Id);
+                    // An objective card shows its line under the text (#380), at its longest (completed early, both dates).
+                    if (e.Objective != "") g.State.Objectives[e.Objective] = new System.DateTime(1948, 11, 30);
                     bridge.Replace(g);
                     for (int i = 0; i < 4; i++) yield return null;   // the fourth: a photograph dropped for height settles
                     CheckPhoto($"{w}x{h}: {e.Id}", root, card, problems);
@@ -530,7 +532,10 @@ public class UiLayoutTests
         var card = root.Q("event-card"); var layer = root.Q("event-layer"); var bar = root.Q("top-bar");
         var c = card.worldBound; var l = layer.worldBound;
         if (!Inside(c, l)) problems.Add($"{where}: the card {c} leaves the decision layer {l}");
-        if (Mathf.Abs((c.xMin - l.xMin) - (l.xMax - c.xMax)) > 1f) problems.Add($"{where}: the card {c} is not centred in the layer {l}");
+        // Centred between the layer's paddings: on a phone held upright the layer keeps the left rail's room free at its left
+        // (the owner's ruling on #859: no rail button under the card), so the card centres right of the rail.
+        float padL = layer.resolvedStyle.paddingLeft, padR = layer.resolvedStyle.paddingRight;
+        if (Mathf.Abs((c.xMin - l.xMin - padL) - (l.xMax - padR - c.xMax)) > 1f) problems.Add($"{where}: the card {c} is not centred in the layer {l} (paddings {padL}, {padR})");
         if (c.width > CardMaxWidth + 1.5f) problems.Add($"{where}: the card is {c.width:0} px wide, over {CardMaxWidth}");
         if (c.yMin < bar.worldBound.yMax - 0.5f) problems.Add($"{where}: the card {c} starts over the top bar {bar.worldBound}");
         var hide = root.Q("event-hide").worldBound;
@@ -681,5 +686,50 @@ public class UiLayoutTests
             card.Dispose();
             Object.DestroyImmediate(go); Object.DestroyImmediate(ps); rt.Release(); Object.DestroyImmediate(rt);
         }
+    }
+
+    /// <summary>#765: a boot failure on the loading line wraps inside the screen with a side margin, in English and in
+    /// Hebrew (the longer line, which was clipped at both edges at phone width), at a phone upright, a small window and
+    /// 1280x720. The line is set the way GameRoot.OnBootFailed sets it: boot.failed with boot.reason_other, right to left
+    /// in the Hebrew face.</summary>
+    [UnityTest]
+    public IEnumerator TheBootFailureLineWrapsInsideTheScreen()
+    {
+        const float SideMargin = 16f;   // logical px the text keeps from each edge of the panel
+        var problems = new List<string>();
+        var he = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.StringsHebrew).text, "strings.he.yaml");
+        foreach (var (w, h) in new[] { (390, 844), (960, 600), (1280, 720) })
+            foreach (var (lang, text) in new[] { ("en", Text), ("he", he) })
+            {
+                var rt = new RenderTexture(w, h, 0);
+                var ps = Object.Instantiate(AssetDatabase.LoadAssetAtPath<PanelSettings>(UiPaths.Panel));
+                ps.targetTexture = rt;
+                var go = new GameObject("LoadingLineTest");
+                go.SetActive(false);
+                var doc = go.AddComponent<UIDocument>();
+                doc.panelSettings = ps;
+                doc.visualTreeAsset = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(UiPaths.GameUxml);
+                go.SetActive(true);
+                try
+                {
+                    var root = doc.rootVisualElement;
+                    bool hebrew = lang == "he";
+                    root.Q("root").EnableInClassList(UiLanguage.HebrewClass, hebrew);
+                    var line = root.Q<Label>("loading");
+                    line.text = text.Format("boot.failed", text["boot.reason_other"]);
+                    line.languageDirection = hebrew ? LanguageDirection.RTL : LanguageDirection.Inherit;   // as GameRoot.Say: this Hebrew line starts with Hebrew, so RTL
+                    for (int i = 0; i < 20 && !(line.contentRect.width > 0); i++) yield return null;
+                    for (int i = 0; i < 4; i++) yield return null;
+                    var where = $"{w}x{h} {lang}";
+                    var panel = root.panel.visualTree.worldBound;
+                    var box = line.worldBound;
+                    if (box.xMin < panel.xMin - 0.5f || box.xMax > panel.xMax + 0.5f) problems.Add($"{where}: the line {box} leaves the panel {panel}");
+                    if (line.contentRect.width > panel.width - 2 * SideMargin + 0.5f)
+                        problems.Add($"{where}: the text may run to the panel's edge (box {line.contentRect.width:0} of {panel.width:0} px)");
+                    if (!TextFits(line)) problems.Add($"{where}: '{line.text}' does not fit its line {line.contentRect}");
+                }
+                finally { Object.DestroyImmediate(go); Object.DestroyImmediate(ps); rt.Release(); Object.DestroyImmediate(rt); }
+            }
+        Assert.IsEmpty(problems, string.Join("\n", problems));
     }
 }

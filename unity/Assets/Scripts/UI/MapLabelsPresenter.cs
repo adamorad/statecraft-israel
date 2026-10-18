@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Statecraft.Game.Map;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -74,6 +75,15 @@ namespace Statecraft.Game.UI
         /// <summary>The most of a kit's screen rectangle a pill may cover (issue #214): its own kit's, and any other
         /// visible kit's.</summary>
         public const float MaxKitCover = 0.1f;
+        /// <summary>The population-tier badge (issue #710) inside a city's or town's pill, and the class that makes room for it.</summary>
+        public const string TierClass = "map-label-tier", WithTierClass = "map-label-with-tier";
+        /// <summary>OWNER-APPROVED DESIGN VALUES (#710, 18 October 2026, "Accept as shipped"): tiers 1 to 9, doubling
+        /// from 1,000 people (under 1,000 is tier 1, 1,000-1,999 tier 2, ..., 128,000 and over tier 9). The badge is at
+        /// the start of the name, mirrored in Hebrew, and remains part of the pill at every zoom where the pill is shown.</summary>
+        public const int TierBase = 1000, TierCount = 9;
+        /// <summary>The badge's inset from its pill's edge (Statecraft.uss ".map-label-with-tier" leaves the room), and its width
+        /// (".map-label-tier"); in the Hebrew UI the badge is inset from the right edge (owner, on #897).</summary>
+        const float TierInsetPx = 7f, TierWidthPx = 23f;
         /// <summary>The panels a pill never sits under (Game.uxml names).</summary>
         public static readonly string[] OccluderNames = { "top-bar", "date-plate", "left-column", "info-panel", "minimap", "map-layer", "event-card" };
 
@@ -131,6 +141,19 @@ namespace Statecraft.Game.UI
         public Label Tooltip { get; }
         Item? tapped, shownFor;   // the pill a tap opened; the pill the tooltip shows now
 
+        /// <summary>The static 1948 population tier of a city of <paramref name="people"/> (owner, 15 October 2026, on #398:
+        /// it does not follow the sim's live population).</summary>
+        public static int Tier(decimal people)
+        {
+            int tier = 1;
+            for (decimal bar = TierBase; tier < TierCount && people >= bar; bar *= 2) tier++;
+            return tier;
+        }
+
+        /// <summary>The default tier tooltip (tests; GameRoot passes the UI strings). Keep it equal to strings.en.yaml's map.tier.</summary>
+        public static string DefaultTierTip(int tier, decimal people) =>
+            string.Format(CultureInfo.InvariantCulture, "Population tier {0} of {1}: {2:N0} people in 1948", tier, TierCount, people);
+
         /// <summary>The default tooltip text (tests; GameRoot passes the UI strings): null when there is nothing to say.</summary>
         public static string? DefaultTip(Statecraft.Game.Map.Kits.Localities.Place p) =>
             TipOf(p, n => "Today: " + n, "Mixed locality");
@@ -147,7 +170,8 @@ namespace Statecraft.Game.UI
         }
 
         public MapLabelsPresenter(VisualElement root, MapScene map, Camera camera, Func<float>? zoomDistance = null, Func<Statecraft.Game.Map.Kits.Localities.Place, string?>? tipText = null,
-            Func<IReadOnlyList<Bounds[]>?>? keepClear = null)
+            Func<IReadOnlyList<Bounds[]>?>? keepClear = null, IReadOnlyDictionary<string, decimal>? population = null,
+            Func<int, decimal, string>? tierTip = null, bool hebrew = false)
         {
             var tip = tipText ?? DefaultTip;
             this.keepClear = keepClear;
@@ -163,17 +187,38 @@ namespace Statecraft.Game.UI
                 var slot = new VisualElement { name = "slot-" + s.Id, pickingMode = PickingMode.Ignore };
                 slot.AddToClassList(SlotClass);
                 var anchorClass = AnchorClass.TryGetValue(s.Id, out var a) ? a : Centre;
-                var label = new Label(s.Name) { name = "label-" + s.Id, pickingMode = PickingMode.Ignore };
+                // #880: the Hebrew UI shows the row's name_he, and the English name where the row has none.
+                var label = new Label(hebrew && !string.IsNullOrWhiteSpace(s.NameHe) ? s.NameHe : s.Name) { name = "label-" + s.Id, pickingMode = PickingMode.Ignore };
                 label.AddToClassList(LabelClass);
                 label.AddToClassList("map-label-" + s.Type);
                 label.AddToClassList(anchorClass);
                 slot.Add(label);
+                // Issue #710: a pill with a 1948 figure (cities.yaml's people) starts with its tier; the rest have no badge.
+                // The badge is the pill's sibling, drawn over its start padding (left, or right in Hebrew): a child would stop the Label sizing to its text.
+                string? tierText = null;
+                if (population != null && population.TryGetValue(s.Id, out var people))
+                {
+                    int tier = Tier(people);
+                    var badge = new Label(tier.ToString(CultureInfo.InvariantCulture)) { name = "tier-" + s.Id, pickingMode = PickingMode.Ignore };
+                    badge.AddToClassList(TierClass);
+                    label.AddToClassList(WithTierClass);
+                    slot.Add(badge);
+                    // The pill's USS anchor translates it by a share of its own size, so the badge follows its laid-out size.
+                    float anchorShare = anchorClass == Left ? 0f : anchorClass == Right ? 1f : 0.5f;
+                    label.RegisterCallback<GeometryChangedEvent>(e =>
+                    {
+                        // Hebrew reads from the right, so the badge starts the name there (owner, 17 Oct 2026, on #897).
+                        badge.style.left = -anchorShare * e.newRect.width + (hebrew ? e.newRect.width - TierInsetPx - TierWidthPx : TierInsetPx);
+                        badge.style.top = -0.5f * e.newRect.height;
+                    });
+                    tierText = (tierTip ?? DefaultTierTip)(tier, people);
+                }
                 container.Add(slot);
                 labels.Add(label); slots.Add(slot);
                 var top = MarkerTop(map, s);
                 settlementOrder.Add(new Item
                 {
-                    Settlement = s, MarkerTop = top, Kit = KitBounds(map, s, top), Marker = MarkerBox(s, top), Slot = slot, Label = label, IsCity = s.Type == "city",
+                    Settlement = s, MarkerTop = top, Kit = KitBounds(map, s, top), Marker = MarkerBox(s, top), Slot = slot, Label = label, IsCity = s.Type == "city", Tip = tierText,
                     First = anchorClass == Left ? Spot.AboveLeft : anchorClass == Right ? Spot.AboveRight : Spot.AboveCentre,
                 });
             }
@@ -188,7 +233,7 @@ namespace Statecraft.Game.UI
                 var s = place.Settlement;
                 var slot = new VisualElement { name = "slot-" + s.Id, pickingMode = PickingMode.Ignore };
                 slot.AddToClassList(SlotClass);
-                var label = new Label(s.Name) { name = "label-" + s.Id, pickingMode = PickingMode.Ignore };
+                var label = new Label(hebrew && !string.IsNullOrWhiteSpace(place.NameHe) ? place.NameHe : s.Name) { name = "label-" + s.Id, pickingMode = PickingMode.Ignore };
                 label.AddToClassList(LabelClass); label.AddToClassList(LocalityClass); label.AddToClassList(Centre);
                 slot.Add(label);
                 container.Add(slot);
@@ -235,6 +280,35 @@ namespace Statecraft.Game.UI
         /// without a kit its marker box.</summary>
         public static Bounds[] KitBounds(MapScene map, Settlement s, Vector3 markerTop) =>
             map.TryKitColumns(s.Id, out var columns) ? columns : MarkerBox(s, markerTop);
+
+        readonly List<Item> siteItems = new List<Item>();
+
+        /// <summary>GDD Phase 1 PR 8 (#381): the built sites' pills (SiteLayer.Places), replacing the last ones given. Each is
+        /// placed like a kibbutz's: after the game settlements and before the 1948 localities, against its kit's columns
+        /// (SiteLayer.Columns) or, with none, its marker box, under the same declutter and clearance rules as every pill.</summary>
+        public void SetSites(IReadOnlyList<(Settlement place, Bounds[]? columns)> sites)
+        {
+            foreach (var it in siteItems) { it.Slot.RemoveFromHierarchy(); items.Remove(it); settlementOrder.Remove(it); }
+            siteItems.Clear();
+            var at = items.FindIndex(x => x.IsLocality);   // the sites go before the localities
+            if (at < 0) at = items.Count;
+            foreach (var (s, columns) in sites)
+            {
+                var slot = new VisualElement { name = "slot-" + s.Id, pickingMode = PickingMode.Ignore };
+                slot.AddToClassList(SlotClass);
+                var label = new Label(s.Name) { name = "label-" + s.Id, pickingMode = PickingMode.Ignore };
+                label.AddToClassList(LabelClass); label.AddToClassList("map-label-" + s.Type); label.AddToClassList(Centre);
+                slot.Add(label);
+                container.Insert(System.Math.Max(0, container.IndexOf(Tooltip)), slot);   // under the tooltip, as the others
+                var top = MarkerTop(map, s);
+                var it = new Item { Settlement = s, MarkerTop = top, Kit = columns ?? MarkerBox(s, top), Marker = MarkerBox(s, top), Slot = slot, Label = label, First = Spot.AboveCentre };
+                items.Insert(at++, it); settlementOrder.Add(it); siteItems.Add(it);
+            }
+            geometryDirty = true;
+        }
+
+        /// <summary>The built sites' pills (SetSites), in the order given.</summary>
+        public IReadOnlyList<Label> SiteLabels { get { var l = new List<Label>(); foreach (var x in siteItems) l.Add(x.Label); return l; } }
 
         /// <summary>A settlement's marker box (what is drawn while the "kits" toggle is off).</summary>
         public static Bounds[] MarkerBox(Settlement s, Vector3 markerTop)
@@ -479,7 +553,7 @@ namespace Statecraft.Game.UI
         }
 
         static Rect Grow(Rect r, float by) => new Rect(r.x - by, r.y - by, r.width + 2f * by, r.height + 2f * by);
-        static bool Hittable(Item it) => it.IsLocality && it.Tip != null && it.ShownLast;
+        static bool Hittable(Item it) => it.Tip != null && it.ShownLast;   // a locality with something to say, or a pill with a tier (#710)
 
         /// <summary>The hit test under Hover, at a point in the labels layer's coordinates: the shown locality pill (with
         /// something to say) that contains it, or none.</summary>
@@ -563,6 +637,8 @@ namespace Statecraft.Game.UI
             occluders.Clear();
             foreach (var slot in Slots) slot.RemoveFromHierarchy();
             foreach (var slot in LocalitySlots) slot.RemoveFromHierarchy();
+            foreach (var it in siteItems) it.Slot.RemoveFromHierarchy();
+            siteItems.Clear();
             Tooltip.RemoveFromHierarchy();
             items.Clear(); settlementOrder.Clear();
         }

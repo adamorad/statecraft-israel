@@ -21,6 +21,58 @@ namespace Statecraft.Game.Map.Kits
         readonly List<int> tri = new List<int>();
 
         public int VertexCount => pos.Count;
+        // ---- Issue #659: the close mesh (owner ruling on #700: "Models up close only") --------------------------------
+        // Up close the towns' buildings are MATKOT's models (TownModelLayer); far off they are this mesh's kit buildings, as
+        // before. The close mesh is this mesh without its buildings (their vertex and index spans, CutStart/CutEnd), plus
+        // the stone plinths under the models (Plinths).
+
+        readonly List<(int v0, int v1, int i0, int i1)> cuts = new List<(int, int, int, int)>();
+        KitMesh? plinths;
+        /// <summary>The plinths under this mesh's building models, drawn only with the models.</summary>
+        internal KitMesh Plinths => plinths ??= new KitMesh();
+
+        /// <summary>Marks the start of a building's parts (CutEnd marks its end): the close mesh leaves them out.</summary>
+        internal (int v, int i) CutStart() => (pos.Count, tri.Count);
+        internal void CutEnd((int v, int i) start) { if (pos.Count > start.v) cuts.Add((start.v, pos.Count, start.i, tri.Count)); }
+        /// <summary>Buildings marked (a test aid).</summary>
+        internal int Cuts => cuts.Count;
+
+        /// <summary>This mesh without its marked buildings, plus its plinths, or null when that is empty. A building's
+        /// triangles only use its own vertices (every part appends its vertices and indexes only those), so the kept
+        /// triangles are re-indexed and nothing else changes.</summary>
+        internal Mesh? ToCloseMesh(string name)
+        {
+            var map = new int[pos.Count];
+            var p = new List<Vector3>(); var n = new List<Vector3>(); var c = new List<Color32>(); var u = new List<Vector2>(); var t = new List<int>();
+            int k = 0;
+            for (int v = 0; v < pos.Count; v++)
+            {
+                while (k < cuts.Count && v >= cuts[k].v1) k++;
+                if (k < cuts.Count && v >= cuts[k].v0) { map[v] = -1; continue; }
+                map[v] = p.Count; p.Add(pos[v]); n.Add(nrm[v]); c.Add(col[v]); u.Add(uv[v]);
+            }
+            k = 0;
+            for (int i = 0; i < tri.Count; i++)
+            {
+                while (k < cuts.Count && i >= cuts[k].i1) k++;
+                if (k < cuts.Count && i >= cuts[k].i0) continue;
+                int at = map[tri[i]];
+                if (at < 0) throw new System.InvalidOperationException("a kept triangle uses a cut building's vertex");
+                t.Add(at);
+            }
+            if (plinths != null)
+            {
+                int off = p.Count;
+                p.AddRange(plinths.pos); n.AddRange(plinths.nrm); c.AddRange(plinths.col); u.AddRange(plinths.uv);
+                foreach (var i in plinths.tri) t.Add(i + off);
+            }
+            if (t.Count == 0) return null;
+            var m = new Mesh { name = name, indexFormat = p.Count > 65000 ? IndexFormat.UInt32 : IndexFormat.UInt16 };
+            m.SetVertices(p); m.SetNormals(n); m.SetColors(c); m.SetUVs(0, u); m.SetTriangles(t, 0);
+            m.RecalculateBounds();
+            m.UploadMeshData(true);
+            return m;
+        }
         public int TriangleCount => tri.Count / 3;
         /// <summary>Vertices whose normal is not unit length (a degenerate face): the shader would light them as NaN on WebGL 2.</summary>
         public int BadNormals { get { int n = 0; foreach (var v in nrm) if (Mathf.Abs(v.sqrMagnitude - 1f) > 1e-3f) n++; return n; } }
@@ -210,11 +262,13 @@ namespace Statecraft.Game.Map.Kits
         /// <summary>A soft, lumpy crown: a sphere of radius (rx, ry, rz) around <paramref name="centre"/> whose vertices are
         /// pushed in and out by <paramref name="lumps"/> (seeded), with spherical normals so the light rolls over it like
         /// foliage, not facets. <paramref name="speck"/> is the share of faces tinted <paramref name="speckColour"/> (citrus
-        /// fruit).</summary>
+        /// fruit). With <paramref name="topFrom"/> under 1, the crown's top pales towards <paramref name="topColour"/>: from none
+        /// where the normal's up component is <paramref name="topFrom"/> to all of it at the crown's peak (the sunlit top;
+        /// up, not towards the sun, so a tree's random yaw cannot turn it away; the shader's sun then lights its sunward side).</summary>
         public void Crown(Vector3 centre, Vector3 radius, Color32 colour, ref KitRandom rnd, float lumps = 0.12f, int segments = 9, int rings = 6,
-            float speck = 0f, Color32 speckColour = default, float flatBottom = 0.35f)
+            float speck = 0f, Color32 speckColour = default, float flatBottom = 0.35f, Color32 topColour = default, float topFrom = 1f)
         {
-            colour.a = 0; speckColour.a = 0;
+            colour.a = 0; speckColour.a = 0; topColour.a = 0;
             int first = pos.Count;
             var cols = new Color32[(rings + 1) * (segments + 1)];
             for (int j = 0; j <= rings; j++)
@@ -228,6 +282,7 @@ namespace Statecraft.Game.Map.Kits
                     var p = Vector3.Scale(n, radius) * k;
                     if (p.y < -radius.y * flatBottom) p.y = -radius.y * flatBottom;   // a flatter underside, as clipped trees have
                     var c = speck > 0f && rnd.Chance(speck) ? speckColour : colour;
+                    if (topFrom < 1f) c = Color32.Lerp(c, topColour, Mathf.SmoothStep(0f, 1f, (n.y - topFrom) / (1f - topFrom)));
                     // Light the underside less: foliage self-shadows.
                     float shade = Mathf.Lerp(0.72f, 1.06f, (n.y + 1f) * 0.5f);
                     c = new Color32((byte)Mathf.Min(255, c.r * shade), (byte)Mathf.Min(255, c.g * shade), (byte)Mathf.Min(255, c.b * shade), 0);

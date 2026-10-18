@@ -29,7 +29,7 @@ public class SaveGameTests
             new Command[] { new SetPolicy("odd id with spaces%", 0.5), new MapAction("transit_camp", 4, 0) },
             new Command[] { new AssignWorkers("town_a", "job", 1) },   // a GDD order: the legacy fixture refuses it
             new Command[] { new Train("town_a", "halutz", 1), new CancelTraining(1) },   // GDD orders too
-            new Command[] { new PioneerWork(1, "build_yishuv", "site_a"), new StopWork(1) },
+            new Command[] { new PioneerWork(1, "build_yishuv", "site_a"), new StopWork(1), new StartProject("housing", "town_a", 1, 1), new CancelProject(1) },
             new Command[] { new SecurityOrder(1) }, new Command[0],
         };
         foreach (var o in orders) g.Step(o);
@@ -48,6 +48,40 @@ public class SaveGameTests
         Assert.Equal(10, loaded.Save.Turns.Count);
         Assert.Equal(text, loaded.Save.Write());                         // writing the loaded save gives the same text
         Assert.Equal(played.Previous!.Hash(), loaded.Previous!.Hash());  // "since last turn" survives a load
+    }
+
+    [Fact]
+    // R-ALT-009
+    public void ARejoinedRoadRoundTripsThroughASave()
+    {
+        var consequence = AlternateTimelineTests.Consequence.Replace("    text: Hold the course\n", "    text: Hold the course\n    rejoin: parent\n");
+        var c = ContentLoader.Load(Fixture.Write(events: new Dictionary<string, string>
+        {
+            ["parent.yaml"] = AlternateTimelineTests.Parent,
+            ["after_road.yaml"] = consequence,
+            ["on_record.yaml"] = AlternateTimelineTests.RecordFollowUp,
+        }));
+        var played = GameSession.New(c, 1, Mode.Historical);
+        // The fixture's turns are a week long: wait for each card, then answer it.
+        void Answer(string id, string option)
+        {
+            for (int i = 0; i < 20 && !played.State.PendingEvents.Contains(id); i++) played.Step(new Command[0]);
+            Assert.Contains(id, played.State.PendingEvents);
+            Assert.Empty(played.Step(new Command[] { new ChooseEventOption(id, option) }).Rejected);
+        }
+        Answer("parent", "road");
+        Answer("after_road", "hold");
+        for (int i = 0; i < 20 && !played.State.FiredEvents.Contains("on_record"); i++) played.Step(new Command[0]);
+        Assert.Equal("road", played.State.ChosenOptions["parent"]);
+        Assert.Equal("hold", played.State.ChosenOptions["after_road"]);
+        Assert.True(Timeline.Rejoined(c, played.State, "parent"));
+        Assert.Contains("on_record", played.State.FiredEvents);
+
+        var loaded = GameSession.Load(c, played.Save.Write(), out var warnings);
+        Assert.Empty(warnings);
+        Assert.Equal(played.State.Hash(), loaded.State.Hash());
+        Assert.Equal(played.State.ChosenOptions.OrderBy(kv => kv.Key), loaded.State.ChosenOptions.OrderBy(kv => kv.Key));
+        Assert.True(Timeline.Rejoined(c, loaded.State, "parent"));
     }
 
     /// <summary>#398 review S1: a load also keeps the step before the last, so a change that compares two steps (the top
@@ -108,7 +142,7 @@ public class SaveGameTests
         var text = Played(Fixture1()).Save.Write();
         var other = Fixture1("90");
         GameSession.Load(other, text, out var warnings);
-        Assert.Equal(new[] { "This save was made with different game content; the replayed game may differ.", "The replayed game differs from the saved one." }, warnings);
+        Assert.Equal(new[] { GameSession.ContentChanged, GameSession.ReplayDiffers }, warnings);   // kinds, not display text (#637)
     }
 
     [Fact]

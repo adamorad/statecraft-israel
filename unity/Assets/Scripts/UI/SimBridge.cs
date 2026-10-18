@@ -59,6 +59,8 @@ namespace Statecraft.Game.UI
             CancelTraining x => FormattableString.Invariant($"untrain:{x.Cohort}"),
             PioneerWork w => FormattableString.Invariant($"unit:{w.Unit}"),
             StopWork w => FormattableString.Invariant($"unit:{w.Unit}"),
+            StartProject p => FormattableString.Invariant($"project:{p.Q},{p.R}"),
+            CancelProject x => FormattableString.Invariant($"unproject:{x.Project}"),
             _ => c.Kind,
         };
 
@@ -110,11 +112,32 @@ namespace Statecraft.Game.UI
                     return Unknown("unit", w.Unit.ToString(System.Globalization.CultureInfo.InvariantCulture), State.Units.Keys.Select(k => k.ToString(System.Globalization.CultureInfo.InvariantCulture)))
                         ?? Unknown("pioneer_work", w.Action, new[] { Projects.BuildYishuv }) ?? Unknown("site", w.Site, Content.Sites.Select(x => x.Id));
                 case StopWork w: return Unknown("unit", w.Unit.ToString(System.Globalization.CultureInfo.InvariantCulture), State.Units.Keys.Select(k => k.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                // City projects (#735): ids only; the sim refuses a far or taken hex, the policy gate and the turn's limit itself.
+                case StartProject p:
+                    return Unknown("city_project", p.ProjectKind, Content.ProjectKinds.Select(x => x.Id)) ?? Unknown("city", p.City, Content.Cities.Select(x => x.Id));
+                case CancelProject x:
+                    return Unknown("city_project", x.Project.ToString(System.Globalization.CultureInfo.InvariantCulture), State.CityProjects.Keys.Select(k => k.ToString(System.Globalization.CultureInfo.InvariantCulture)));
                 default: return text["order.invalid"];
             }
         }
 
         string? Refuse(string reason) { Refused?.Invoke(reason); return reason; }
+
+        static void Notify(Action? handlers)
+        {
+            if (handlers == null) return;
+            foreach (Action handler in handlers.GetInvocationList())
+                try { handler(); }
+                catch (Exception e) { UnityEngine.Debug.LogException(e); }
+        }
+
+        static void Notify<T>(Action<T>? handlers, T value)
+        {
+            if (handlers == null) return;
+            foreach (Action<T> handler in handlers.GetInvocationList())
+                try { handler(value); }
+                catch (Exception e) { UnityEngine.Debug.LogException(e); }
+        }
 
         /// <summary>Queues an order (replacing one with the same key). Returns null, or why it was refused here: an id
         /// the content does not have, the game is over, or the order costs more attention than is left. A refusal is
@@ -158,14 +181,14 @@ namespace Statecraft.Game.UI
                 LastBatch = Array.Empty<Command>();
                 var reason = text["order.failed"];   // the message stays in the log above, not on screen (#622)
                 var failed = new StepResult(State, new Cause[0], batch.Select(x => new Rejection(x, reason)).ToList());
-                Changed?.Invoke();
-                TurnEnded?.Invoke(failed.Rejected);
+                Notify(Changed);
+                Notify(TurnEnded, failed.Rejected);
                 return failed;
             }
             LastBatch = batch; LastBatchDate = date;
             queue.Clear();
-            Changed?.Invoke();
-            TurnEnded?.Invoke(r.Rejected);
+            Notify(Changed);
+            Notify(TurnEnded, r.Rejected);
             return r;
         }
 

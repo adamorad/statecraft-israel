@@ -20,7 +20,7 @@ The simulation must produce the same state, bit for bit, on .NET, Unity Mono and
 with `GoldenRun.Seed = 1948` on the real `content/`, then steps with `GoldenRun.Orders` until `Date >= until`
 (or the game ends, or 1000 turns pass). Since the GDD cutover (Phase 2 PR 1) the orders are the reference player's
 (`Statecraft.Sim.Reference.ReferencePlayer`, decision D-A7): a stated test policy, not game AI and not history. It sends
-`HistoricalAI`'s orders, then fills each city's jobs, then trains one halutz group when there is none and none in training,
+`HistoricalAI`'s orders and leaves the jobs to each city's default (R-CITY-009), then trains one halutz group when there is none and none in training,
 while the turn's Attention and the Treasury last. No game mode or UI reaches it (`ReferencePlayerTests`); every copy of the
 golden loop (the writer preview, the invariants, the era goldens) takes its orders from `GoldenRun.Orders`. The real game
 plays the GDD loop on monthly turns from 15 May 1948 and ends on 15 January 1952 after 44 turns (R-LOOP-004). Each run's
@@ -28,26 +28,29 @@ final `GameState.Hash()` is pinned:
 
 | Run | Ends | Hash |
 |---|---|---|
-| to 1950-01-01 (`Hash1950`) | 1950-01-15, turn 20 | `ad8067765007988a2ea52226a50622259b695cd72a5b735b298207e472b81504` |
-| to 1952-01-01 (`Hash1952`) | 1952-01-15, turn 44 (the game's end) | `0f54dc51a42575774b12a4b712d6d6ad69a45573232bd5b54b8527b24f4281f2` |
-| to the game's end (`mvp-end`) | 1952-01-15, turn 44 | `0f54dc51a42575774b12a4b712d6d6ad69a45573232bd5b54b8527b24f4281f2` |
+| to 1950-01-01 (`Hash1950`) | 1950-01-15, turn 20 | `9922495a92307f87d7b5338cd8501fb60ad0424ea6b19ef2d1ec55c44a8bdfb8` |
+| to 1952-01-01 (`Hash1952`) | 1952-01-15, turn 44 (the game's end) | `548a6acce93c677f566e7d6febdeb50ed6aeba0e4f61a884708ef0fc38774d87` |
+| to the game's end (`mvp-end`) | 1952-01-15, turn 44 | `548a6acce93c677f566e7d6febdeb50ed6aeba0e4f61a884708ef0fc38774d87` |
 
 `hash1952` stops at the first turn on or after 1 January 1952, which is the game's last turn, so it is the same run as
 `mvp-end` (`DeterminismTests.TheWholeGameToItsEndIsFixed`). Both names are kept (spec 2026-10-12 section 3 step 6): a
-later end date moves only `mvp-end`. `mvp-end` is pinned in the manifest and its snapshot; the players and `web_check`
-check `hash1950` and `hash1952`.
+later end date moves only `mvp-end`. `mvp-end` is pinned in the manifest and its snapshot; Unity EditMode and every
+player check enumerate the manifest, so it and every scenario are checked without another hand-written list.
 
 A further value is pinned for the browser smoke run (`?smoke=5`: the golden seed, five turns played through the UI's own
 buttons, answering each event with its first option while the turn's Attention pays for it, the rest left to their
-ministers): `SMOKE OK 5 turns 1948-10-15 85191d48688be4595726b17778ecdda0175eff8f6f0fa1d976dbe3b48b42823b`.
+ministers): `SMOKE OK 5 turns 1948-10-15 3005405d64abc6e7418fa1f0d35c36ce5f64ed3af7c5a4c24a73d5dfdb16121f`.
 It depends on the UI path as well as the sim (which option is first, the turn grid), so re-record it when either changes.
-Check every build with:
+Check every WebGL build with every manifest entry (plus the UI-path smoke line) with:
 
 ```
-uv run tools/web_check.py unity/Builds/Web-<compression> --query "golden&smoke=5" \
-  --expect "GOLDEN OK 1950 ad8067765007988a2ea52226a50622259b695cd72a5b735b298207e472b81504" \
-  --expect "GOLDEN OK 1952 0f54dc51a42575774b12a4b712d6d6ad69a45573232bd5b54b8527b24f4281f2" \
-  --expect "SMOKE OK 5 turns 1948-10-15 85191d48688be4595726b17778ecdda0175eff8f6f0fa1d976dbe3b48b42823b"
+golden_expect=()
+while read -r name hash; do
+  [[ -z "$name" || "$name" == \#* ]] && continue
+  golden_expect+=(--expect "GOLDEN OK $name $hash")
+done < sim/Statecraft.Sim.Tests/golden/manifest.txt
+uv run tools/web_check.py unity/Builds/Web-<compression> --query "golden&smoke=5" "${golden_expect[@]}" \
+  --expect "SMOKE OK 5 turns 1948-10-15 3005405d64abc6e7418fa1f0d35c36ce5f64ed3af7c5a4c24a73d5dfdb16121f"
 ```
 
 **When a golden moves.** The test fails with the lines that changed, grouped by section (`[ind]`, `[pol]`, `[bud]`,
@@ -78,9 +81,10 @@ them from a seed (default 1948) in Historical mode until `until:`, and `Scenario
 scripted command passes. A command the sim rejects fails the test with the date, the order and the reason, and a step that never runs
 fails too. To add one: write the file, run `STATECRAFT_UPDATE_GOLDEN=1 dotnet test sim/Statecraft.sln --filter ScenarioTests` (it adds the
 manifest line and the snapshot), then run the tests plain. A scenario that moves is re-pinned with the hash goldens by the same
-command; its snapshot diff in the PR shows what moved, and the commit message says why. All three play the real content.
+command; its snapshot diff in the PR shows what moved, and the commit message says why. All four play the real content.
 `cautious` and `reckless` stay in 1948, so they move only when a 1948 rule or event does; `mvp-absorb-first` (GDD Phase 1
-PR 3) fills Tel Aviv's jobs on the first turn and plays to 15 June 1949.
+PR 3) fills Tel Aviv's jobs on the first turn and plays to 15 June 1949; `mvp-defeat` (GDD Phase 7 PR 5) overspends and
+turns down every source of foreign currency until Money and Food run out, and ends in `defeat_economy` (R-END-002).
 
 **MVP goldens after the cutover.** The real game is the GDD game, so every golden above is an MVP golden. Each PR that
 changes an MVP rule or a design value (R-LOOP-005) moves the goldens it reaches, re-pins them in the same PR, adds a row to
@@ -131,8 +135,10 @@ compare against it. These places must agree with it, and `GoldenManifestTests` f
 
 `tools/art_checkpoint.sh` reads its expected hashes from the manifest, so it needs no edit.
 
-`unity/Assets/Tests/EditMode/SimSmokeTests.cs` runs the same playthroughs inside Unity against `GoldenRun`'s constants
-(run `uv run tools/build_sim_for_unity.py` first so Unity has the current DLLs).
+`unity/Assets/Tests/EditMode/GoldenCheckTests.cs` reads the manifest and runs every entry inside Unity Mono. `GoldenCheck`
+does the same in macOS and WebGL IL2CPP; `ContentSync` ships the manifest and scenario YAML, and the WebGL loader fetches
+them before the check. `tools/player_golden_check.py` and `tools/release_build.py` also derive their required OK lines
+from the complete manifest. Run `uv run tools/build_sim_for_unity.py` first so Unity has the current DLLs.
 
 Verified on .NET, Unity editor Mono, a macOS IL2CPP player (Apple clang, no `-ffp-contract=off` needed) and a WebGL
 IL2CPP player in Chrome (M3 Task 22). The platform checks below used the prior `73590e32` 1952 baseline. The issue #2
@@ -155,11 +161,19 @@ Re-checked on macOS after the issue #2 correction (2026-10-14, commit `bd683ee0`
 Re-check with:
 
 ```
-"$UNITY" -batchmode -CI false -GITHUB_ACTIONS false -TF_BUILD false -quit -projectPath unity -buildTarget WebGL -executeMethod Statecraft.Game.EditorTools.Build.Web -compression disabled -logFile unity-build-web.log
-uv run tools/web_check.py unity/Builds/Web-disabled --query golden --expect "GOLDEN OK 1950" --expect "GOLDEN OK 1952"
-"$UNITY" -batchmode -CI false -GITHUB_ACTIONS false -TF_BUILD false -quit -projectPath unity -buildTarget OSXUniversal -executeMethod Statecraft.Game.EditorTools.Build.Mac -logFile unity-build-mac.log
-"unity/Builds/Mac/Statecraft.app/Contents/MacOS/Statecraft Israel" -batchmode -nographics -golden -logFile "$PWD/unity-golden-mac.log"; echo exit=$?
+uv run tools/machine_lock.py --shared --wait-unity -- "$UNITY" -batchmode -CI false -GITHUB_ACTIONS false -TF_BUILD false -projectPath unity -runTests -testPlatform EditMode -testFilter GoldenCheckTests -testResults "$PWD/unity-editmode.xml" -logFile "$PWD/unity-editmode.log"
+uv run tools/machine_lock.py --shared --wait-unity -- "$UNITY" -batchmode -CI false -GITHUB_ACTIONS false -TF_BUILD false -quit -projectPath unity -buildTarget WebGL -executeMethod Statecraft.Game.EditorTools.Build.Web -compression disabled -logFile unity-build-web.log
+golden_expect=(); while read -r name hash; do [[ -z "$name" || "$name" == \#* ]] || golden_expect+=(--expect "GOLDEN OK $name $hash"); done < sim/Statecraft.Sim.Tests/golden/manifest.txt
+uv run tools/web_check.py unity/Builds/Web-disabled --query golden "${golden_expect[@]}"
+uv run tools/machine_lock.py --shared --wait-unity -- "$UNITY" -batchmode -CI false -GITHUB_ACTIONS false -TF_BUILD false -quit -projectPath unity -buildTarget OSXUniversal -executeMethod Statecraft.Game.EditorTools.Build.Mac -logFile unity-build-mac.log
+uv run tools/machine_lock.py --shared -- "unity/Builds/Mac/Statecraft.app/Contents/MacOS/Statecraft Israel" -batchmode -nographics -golden -logFile "$PWD/unity-golden-mac.log"; echo exit=$?
 ```
+
+Last full-set run (all seven manifest goldens, one `GOLDEN OK <name> <hash>` line each, every hash equal to the
+manifest), 18 October 2026, commit `6d29976b` (#394) on `30fbe580`: Unity editor Mono EditMode (`GoldenCheckTests`,
+in a full run of 1,321 tests, 0 failed); WebGL IL2CPP in Chrome (`Web-disabled`, `?golden&smoke=5`, `PASS` with the
+`SMOKE OK` line too); and a macOS IL2CPP Universal player on Apple silicon (arm64 slice, `-golden`, exit 0). The x86_64
+slice, Windows and Linux players were not run then (the `Player golden` workflow checks them on a release).
 
 The player needs an absolute `-logFile` path: with a relative one it wrote no log file in the check run. The editor
 commands are fine with relative paths.
@@ -224,3 +238,60 @@ The hash reads the state keys, so it never sees a record outside its window. An 
 | GDD Phase 1 PR 6 | 1950 | `ad806776` | the first new yishuv objective (R-OBJ-001 to R-OBJ-003), rebased onto the cutover: the reference player builds Mefalsim on 15 June 1949, the month of its 12 June 1949 founding, so the objective completes on time for 100 points (`obj{first_new_yishuv=1949-06-15}`, `score=100`) and its card fires and is answered (`first_new_yishuv=continue`); no other event moves, so the card displaces nothing under the soft-event cap; `objective_points`, `objective_bonus_per_month` and `objective_bonus_cap` enter `rules.yaml` as design values (D-B6, D-B2) (was `f97e9f81`) |
 | GDD Phase 1 PR 6 | 1952 | `0f54dc51` | same (was `75d38299`) |
 | GDD Phase 1 PR 6 | mvp-end | `0f54dc51` | same; the same run as hash1952 (was `75d38299`); `smoke5` and the three scenarios do not move |
+| GDD Phase 2 PR 3 | 1950 | `ca953c98` | the national Food stock (R-FOOD-001 to R-FOOD-003; maintainer decision of 16 October 2026, #382, option (b)): a new hashed line `food=stock,need,unmet`, written only when set. The stock starts at `cover_months` (3) of the need and the monthly import keeps it there, so its `food_supply` term is exactly 0 and nothing else in the run moves (`food=3003,1001,0`) (was `ad806776`) |
+| GDD Phase 2 PR 3 | 1952 | `b42380ab` | same, and the 1951 currency crisis now cuts Food imports into the stock (Q-POOL-4) instead of shifting `food_supply` directly: the legacy cut is gone (`shift food_supply` 0.15, was 0.1167: the events' 0.15 less the cut's 0.0333 over the two crisis turns), the last turn imports nothing, the stock falls to 2732 against a full 4170 (`food=2732,1390,0`), and the stock term takes 0.0345 off, so `food_supply` ends at 0.8555 (was 0.8567); the voter groups read `food_supply`, so `stab` moves with it (0.5098, was 0.5095) (was `0f54dc51`) |
+| GDD Phase 2 PR 3 | mvp-end | `b42380ab` | same; the same run as hash1952 (was `0f54dc51`) |
+| GDD Phase 2 PR 3 | smoke5 | `848969ce` | the new `food=` line only; the five turns hold a full stock (was `85191d48`) |
+| GDD Phase 2 PR 3 | scenario-cautious | `5553c31a` | the new `food=` line only (`food=2253,751,0`) (was `58eb01db`) |
+| GDD Phase 2 PR 3 | scenario-reckless | `42041362` | the new `food=` line only (`food=2253,751,0`) (was `e2f409a5`) |
+| GDD Phase 2 PR 3 | scenario-mvp-absorb-first | `e01bb37a` | the new `food=` line only (`food=2556,852,0`) (was `f8858f6e`) |
+| GDD Phase 3 PR 1 | 1950 | `ea730229` | GDD Phase 3 PR 1's twelve cities (#821, R-CITY-006, R-CITY-007): the `city{}` section holds the twelve census starts (511 units; Tel Aviv 248 civilians and 106 employed, was 100 and 80) with every job filled, and `spending_per_capita_per_year` is re-derived with their job income (0.0001036, was 0.000093; owner, 16 October 2026, option (a)). The reference player sends no `AssignWorkers` on the first turn, so it trains its halutz group on 15 May 1948 (was 15 August) and builds Mefalsim on 15 March 1949 (was 15 June): `score=115` with the early bonus (was 100) (was `ca953c98`) |
+| GDD Phase 3 PR 1 | 1952 | `ca887e45` | same; debt ends at 170.9 (was 157.0) and `coh` at 0.4213 (was 0.4521) (was `b42380ab`) |
+| GDD Phase 3 PR 1 | mvp-end | `ca887e45` | same; the same run as hash1952 (was `b42380ab`) |
+| GDD Phase 3 PR 1 | smoke5 | `4104103f` | the twelve cities and the new spending in the first five turns (was `848969ce`) |
+| GDD Phase 3 PR 1 | scenario-cautious | `5f162f0f` | the twelve cities and the new spending (was `5553c31a`) |
+| GDD Phase 3 PR 1 | scenario-reckless | `a10877e2` | same (was `42041362`) |
+| GDD Phase 3 PR 1 | scenario-mvp-absorb-first | `53852f2c` | same (was `e01bb37a`) |
+| GDD Phase 3 PR 2 | 1950 | `d22b369f` | GDD Phase 3 PR 2's arrivals over the cities (R-CITY-003, Q-ARRV-1, Q-ARRV-3): the cities take arrivals from the census day, 8 November 1948, not 15 May, so 78 fewer units arrive in them (269 refugees waiting on 1 January 1950, was 347), and they are spread over the twelve cities by census people instead of all landing in Tel Aviv (Tel Aviv 131, Haifa 52, Jerusalem 44). Only the `city{}` section and `coh` move (0.5418, was 0.5106); the national head count, the debt and the reference player's orders do not (was `ea730229`) |
+| GDD Phase 3 PR 2 | 1952 | `21029217` | same; 608 refugees waiting at the end (was 686), Tel Aviv 296 of them; `coh` 0.4364 (was 0.4213) (was `ca887e45`) |
+| GDD Phase 3 PR 2 | mvp-end | `21029217` | same; the same run as hash1952 (was `ca887e45`) |
+| GDD Phase 3 PR 2 | smoke5 | `3f7a0fe0` | the first five turns end before the census day, so the cities take no arrivals in them (was `4104103f`) |
+| GDD Phase 3 PR 2 | scenario-cautious | `a9afb0ad` | the arrivals over the cities; `city{}` and `coh` only (was `5f162f0f`) |
+| GDD Phase 3 PR 2 | scenario-reckless | `8f209d56` | same (was `a10877e2`) |
+| GDD Phase 3 PR 2 | scenario-mvp-absorb-first | `8601da93` | same (was `53852f2c`) |
+| GDD Phase 2 PR 4 | 1950 | `2766b45b` | Social cohesion is `morale` (D-C1, Reading 2; R-CITY-005, R-NAT-001): the `coh=` line goes (a hash format change), and two new effect-web sources of `morale`, `work_lifts_cohesion` (the cities' employed share) and `food_lifts_cohesion` (`food_supply`), k 0.10 and inertia 2 each, act every turn (Q-NAT-2). `morale` ends at 0.5545 (was 0.4255); approval reads it (Q-NAT-5), so `stab` ends at 0.5612 (was 0.5123). Two new situations, `low_cohesion` and `low_intl_support`, do not fire in the run (was `d22b369f`) |
+| GDD Phase 2 PR 4 | 1952 | `f8cd22d7` | same; `morale` ends at 0.5691 (was 0.4388), `stab` at 0.5683 (was 0.5098) (was `21029217`) |
+| GDD Phase 2 PR 4 | mvp-end | `f8cd22d7` | same; the same run as hash1952 (was `21029217`) |
+| GDD Phase 2 PR 4 | smoke5 | `2436927c` | the `coh=` line goes and the two new sources of `morale` (was `3f7a0fe0`) |
+| GDD Phase 2 PR 4 | scenario-cautious | `28fd1405` | same; `morale` ends at 0.6183 (was 0.5296) (was `a9afb0ad`) |
+| GDD Phase 2 PR 4 | scenario-reckless | `af7b2abd` | same (was `8f209d56`) |
+| GDD Phase 2 PR 4 | scenario-mvp-absorb-first | `b16a8740` | same (was `8601da93`) |
+| GDD Phase 4 PR 1 | 1950 | `37c51050` | the MVP's four yishuv sites (R-SITE-004, Q-SITE-1, #785): the reference player builds them in ordinal id order, so Beit Kama is built on 1949-03-15 and Gilat on 1949-09-15, and Mefalsim is still being built on 1 January 1950. The first-new-yishuv objective and its card leave the run (score 0, was 115), and the debt is IL 4m higher for the extra builds (was `2766b45b`) |
+| GDD Phase 4 PR 1 | 1952 | `7745031b` | same; Mefalsim is built on 1950-03-15 and Re'im on 1950-09-15, so the objective completes nine months after its reference date with no timing bonus (score 100, was 115); the debt is IL 6m higher (was `f8cd22d7`) |
+| GDD Phase 4 PR 1 | mvp-end | `7745031b` | same; the same run as hash1952 (was `f8cd22d7`) |
+| GDD Phase 4 PR 6 | 1950 | `ef765972` | the veteran pioneer (R-VET-001, R-VET-002, D-D9, #790): the reference player's halutz group works the six turns of the Beit Kama build (still built on 1949-03-15), becomes a `veteran_halutz` with 6 turns of service (`1:veteran_halutz@-3,19/6`) and builds the other three sites in 3 turns each: Gilat on 1949-06-15 (was 1949-09-15), Mefalsim on 1949-09-15 and Re'im on 1949-12-15. The first-new-yishuv objective completes on 1949-09-15 and its card fires and is answered in the run (score 100, was 0), and the debt is IL 2m higher for the extra builds (was `37c51050`) |
+| GDD Phase 4 PR 6 | 1952 | `7b4bffe0` | same; Mefalsim is built on 1949-09-15 (was 1950-03-15) and Re'im on 1949-12-15 (was 1950-09-15). The objective still completes after its reference date with no timing bonus, so the score (100) and the debt do not change (was `7745031b`) |
+| GDD Phase 4 PR 6 | mvp-end | `7b4bffe0` | same; the same run as hash1952 (was `7745031b`) |
+| GDD Phase 4 PR 3 | 1950 | `38c8a484` | build a training camp (R-CAMP-001, #787): once the four yishuv sites are taken, the reference player's veteran group builds the camp sites in ordinal id order. At the end of the 1950 run (1950-01-15) Camp 80 is being built (`camp_80=b,1,4`), and the debt is IL 2m higher (was `ef765972`) |
+| GDD Phase 4 PR 3 | 1952 | `1e21fcd3` | same; at 2 turns of progress a turn (R-VET-002) Camp 80 is built on 1950-03-15 and Tzrifin on 1950-06-15. The debt is IL 4m higher (2 x IL 2m). The reference player trains no group after the first, so the new facilities (a military camp each for Hadera and Rishon LeZion, owner "Both military" on #927) change nothing else (was `7b4bffe0`) |
+| GDD Phase 4 PR 3 | mvp-end | `1e21fcd3` | same; the same run as hash1952 (was `7b4bffe0`) |
+| GDD Phase 4 PR 4 | 1950 | `e4ebff9b` | plow fields (R-FIELD-001, R-FIELD-002, #788), rebased on the training camps (#927): once the four yishuv sites are taken, the reference player's veteran group plows their fields in ordinal id order, before any camp. At the end of the 1950 run (1950-01-15) Beit Kama's field is still being plowed (`beit_kama_field=b,1,1`) instead of Camp 80 being built, and the debt is IL 1.5m lower (IL 0.5m for the field instead of IL 2m for the camp) (was `38c8a484`) |
+| GDD Phase 4 PR 4 | 1952 | `e0d8212a` | same; at 2 turns of progress a turn (R-VET-002) the fields are plowed on 1950-02-15 (Beit Kama), 1950-04-15 (Gilat), 1950-06-15 (Mefalsim) and 1950-08-15 (Re'im), so Camp 80 is built on 1950-11-15 (was 1950-03-15) and Tzrifin on 1951-02-15 (was 1950-06-15). The debt is IL 2m higher (4 x IL 0.5m), and the Food stock ends 4 units higher (2736, was 2732), which lifts food_supply and stability in the fourth decimal (was `1e21fcd3`) |
+| GDD Phase 4 PR 4 | mvp-end | `e0d8212a` | same; the same run as hash1952 (was `1e21fcd3`) |
+| GDD Phase 3 PR 3 | 1950 | `7cf678b6` | GDD Phase 3 PR 3's housing (R-CITY-004, R-HOUSE-001 to R-HOUSE-004; Q-HOUSE-1, Q-HOUSE-2, Q-HOUSE-5, Q-START-3; owner, 17 October 2026, Q-PR3-A (a)), re-pinned on main after #927 and #871: no hard cap, so every refugee is housed on the next housing step (18 refugees waiting on 1 January 1950, the last turn's arrivals, was 269), the people beyond a city's housing are its overflow, and each city's housing condition (start 0.35) falls by 0.15 times its overflow share a turn; 11 of the 12 cities are at condition 0 by then (Rosh Pinna, with no overflow, keeps 0.35). The condition joins each `city{}` record. The national `housing` indicator's base is now the cities' people-weighted mean condition, so `housing` falls to 0.0850 (was 0.4345) and `housing_crisis` is on; through `homes_lift_morale`, Social cohesion (`morale`) falls to 0.4990 (was 0.5545), with `work_lifts_cohesion` lower too because more civilians share the same jobs; stability 0.4970 (was 0.5612). The national head count, the Treasury, the debt, Food, the camp and field builds and the reference player's orders do not move (was `e4ebff9b`) |
+| GDD Phase 3 PR 3 | 1952 | `94969472` | same; 8 refugees waiting at the end (was 608), every city at condition 0; `housing` 0.0850 (was 0.4350), `housing_crisis` on, `morale` 0.4946 (was 0.5691), stability 0.4487 (was 0.5683); the `housing` shift reads -1.4e-17 (was 0), IEEE rounding of the level minus the moving inner value (was `e0d8212a`) |
+| GDD Phase 3 PR 3 | mvp-end | `94969472` | same; the same run as hash1952 (was `e0d8212a`) |
+| GDD Phase 3 PR 3 | smoke5 | `3005405d` | the condition joins each `city{}` record; the first five turns have no overflow, so `housing` and `morale` are unchanged (was `2436927c`) |
+| GDD Phase 3 PR 3 | scenario-cautious | `6507ddc3` | the housing rules: `city{}`, `housing`, `morale`, its two links and stability (was `28fd1405`) |
+| GDD Phase 3 PR 3 | scenario-reckless | `8041988a` | same (was `af7b2abd`) |
+| GDD Phase 3 PR 3 | scenario-mvp-absorb-first | `a77a8f20` | same (was `b16a8740`) |
+| GDD Phase 4 PR 5 | 1952 | `f9f47f5c` | dry swamp and the Hula event (R-SWAMP-001, R-SWAMP-002, #789), rebased on the housing condition (#855) and the alternate-timeline stack (#960, #966, #972): `hula_drainage` now fires only while the player's works at the Hula swamp site are in progress, and the reference player drains no swamp, so the card leaves `fired[]` and `chosen{}` (it fired on 1951-03-15 with `continue_works`). Without that choice's effects security ends at 0.5061 (was 0.5361) and intl_standing at 0.83 (was 0.78), which moves morale (0.4916, was 0.4946) and stability (0.4432, was 0.4487) through the effects web (was `94969472`) |
+| GDD Phase 4 PR 5 | mvp-end | `f9f47f5c` | same; the same run as hash1952 (was `94969472`) |
+| GDD Phase 4 PR 1 (Kiryat Shmona, Beit Shemesh) | 1950 | `69ac1384` | Kiryat Shmona and Beit Shemesh join the yishuv sites (Q-SITE-1, owner, #782 and #785), re-pinned on main after #871, #855 and #968. The reference player takes the yishuv sites in ordinal id order before any field or camp, so its veteran builds Beit Shemesh on 1949-06-15, Gilat on 1949-09-15 and Kiryat Shmona on 1949-12-15, and is building Mefalsim at the cut (`mefalsim=b,1,4`; it was plowing Beit Kama's field). The first-new-yishuv objective no longer completes inside the run, so its card does not fire and the score is 0 (was 100); the debt is IL 1.5m higher (IL 2m for the build in progress instead of IL 0.5m for the field) (was `7cf678b6`) |
+| GDD Phase 4 PR 1 (Kiryat Shmona, Beit Shemesh) | 1952 | `b34faec6` | same; Mefalsim is built on 1950-03-15 (was 1949-09-15) and Re'im on 1950-06-15 (was 1949-12-15). The six fields are plowed after them, in ordinal id order: Beit Kama 1950-08-15, Beit Shemesh 1950-10-15, Gilat 1950-12-15, Kiryat Shmona 1951-02-15, Mefalsim 1951-04-15 and Re'im 1951-06-15, so Camp 80 is built on 1951-09-15 (was 1950-11-15) and Tzrifin on 1951-12-15 (was 1951-02-15). The objective completes on 1950-03-15, after its reference date, so the score (100) does not change. The debt is IL 5m higher (2 x IL 2m for the yishuvim, 2 x IL 0.5m for their fields), and the Food stock ends 2 units higher (2738, was 2736), which lifts food_supply in the fifth decimal and stability in the sixth (was `f9f47f5c`) |
+| GDD Phase 4 PR 1 (Kiryat Shmona, Beit Shemesh) | mvp-end | `b34faec6` | same; the same run as hash1952 (was `f9f47f5c`) |
+| GDD Phase 3 PR 4 | 1950 | `9922495a` | city projects (R-PROJ-001 to R-PROJ-003, #735; Q-PROJ-1 to Q-PROJ-5, Q-HOUSE-3, owner, 15 October 2026, #375): the reference player's stated policy (D-A7) now starts a housing project, one at a time, in the city with the most overflow, on the first free hex next to it, borrowing as its other orders do. Its first start is on 1949-03-15 in Tel Aviv, built on 1949-08-15 (+5 capacity, +0.03 condition); the second is being built. `cproj[...]` joins the state; `mapturn` now counts the turn's project starts. Tel Aviv's capacity 253 (was 248) and condition 0.0168 (was 0), so `housing` 0.0932 (was 0.0850), `morale` 0.5018 (was 0.4990), stability 0.5002 (was 0.4970); debt IL 91.5m (was 79.5m, 2 x IL 6m); rebased on Kiryat Shmona and Beit Shemesh (#944) and the event city effect (#1001) (was `69ac1384`) |
+| GDD Phase 3 PR 4 | 1952 | `548a6acc` | same; five Tel Aviv projects built (1949-08-15 to 1951-08-15; capacity 273, was 248) and a sixth, in Haifa, being built. Every city is back at condition 0 by the end, so `housing` is unchanged and `morale` moves only in the 10th decimal; debt IL 223.9m (was 187.9m, 6 x IL 6m), inside invariants.yaml's 100 to 300 band; stability 0.4432 (unchanged to 4 places) (was `b34faec6`) |
+| GDD Phase 3 PR 4 | mvp-end | `548a6acc` | same; the same run as hash1952 (was `b34faec6`) |
+| GDD Phase 7 PR 5 | scenario-mvp-defeat | `d1e0dcf6` | new: full mobilisation and the non-historical option of the four foreign currency cards; the debt passes the IL 250m ceiling on 15 April 1951, foreign currency runs out on 15 August, food imports stop, the stock is empty from 15 November, and the third turn end with Money and Food both exhausted ends the game with `defeat_economy` on 15 January 1952 (`exhausted=3`). No other golden moves: the reference and the no-order runs never have Food at 0, so the counter stays at 0 and out of the hash. Rebased on the Hula swamp (#968): `hula_drainage` no longer fires in this run (no works at the Hula) and, as in the 1952 run on main, `iraqi_exodus` resolves to `airlift` (was `pace`), so the end state differs; the defeat dates above are unchanged (was `cbebedfa` before the rebase) |
+| GDD Phase 3 PR 5 | scenario-mvp-absorb-first | `be13c409` | the job default and the craftsman (R-CITY-009, R-CRAFT-001, R-CRAFT-002; Q-JOBS-1, Q-CRAFT-1 to Q-CRAFT-3, owner, 15 October 2026, #375; #736): the scenario's one order, `AssignWorkers` for 90 of Tel Aviv's 106 jobs on 15 May 1948, now turns Tel Aviv's job default off, so its `city{}` record gains `,jobs=manual`. No number moves: Tel Aviv keeps its 90 as before, and the other cities' jobs stay full. `hash1950`, `hash1952`, `mvp-end`, `smoke5`, `scenario-cautious`, `scenario-reckless` and `scenario-mvp-defeat` do not move: the reference player no longer sends `AssignWorkers`, and on those runs the default fills the same jobs it did; nobody trains a craftsman (was `a77a8f20`) |

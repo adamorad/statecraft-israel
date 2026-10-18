@@ -54,7 +54,9 @@ namespace Statecraft.Game.Map
         /// data (beyond the frontier, the sea).</summary>
         public enum Side { None, Israel, Arab, Contested, NoMansLand, Dmz, OffData }
 
-        public enum Legend { Held, Mixed, Armistice }
+        /// <summary>Held: a 1948 front line; Adjusted: 15 May - 10 June 1948, the 9 July line with the changes before 11 June
+        /// in grey (owner decision of 16 October 2026, #674); Mixed: some fronts' armistice lines; Armistice: every front's.</summary>
+        public enum Legend { Held, Adjusted, Mixed, Armistice }
 
         public sealed class Period
         {
@@ -154,7 +156,7 @@ namespace Statecraft.Game.Map
                 var until = Date(p.Until, $"period {p.Id} until");
                 if (until != null && until <= from) throw new InvalidDataException($"{FileName}: period {p.Id}: until is not after from");
                 if (periods.Count > 0 && periods[periods.Count - 1].Until != from) throw new InvalidDataException($"{FileName}: period {p.Id} does not start where {periods[periods.Count - 1].Id} ends");
-                var legend = p.Legend switch { "held" => Legend.Held, "mixed" => Legend.Mixed, "armistice" => Legend.Armistice,
+                var legend = p.Legend switch { "held" => Legend.Held, "adjusted" => Legend.Adjusted, "mixed" => Legend.Mixed, "armistice" => Legend.Armistice,
                     _ => throw new InvalidDataException($"{FileName}: period {p.Id}: unknown legend '{p.Legend}'") };
                 periods.Add(new Period { Id = p.Id, From = from, Until = until, Legend = legend, LineDate = p.LineDate, Fronts = p.Fronts.ToList() });
             }
@@ -189,10 +191,15 @@ namespace Statecraft.Game.Map
         {
             string F(string key, params object[] a) => string.Format(CultureInfo.InvariantCulture, text(key), a);
             if (DateTime.TryParseExact(lineDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
-                return F("date.day_month_year", d.Day, text("date.month_" + d.Month), d.Year);
+                return DateText(d, text);
             if (DateTime.TryParseExact(lineDate, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var m))
                 return F("date.month_year", text("date.month_" + m.Month), m.Year);
             return lineDate;
         }
+
+        /// <summary>A day as players read it, in the UI's language through <paramref name="text"/> (date.day_month_year,
+        /// date.month_1..12): "15 May 1948" / "15 במאי 1948". The map's line date and the top bar's date plate (#687).</summary>
+        public static string DateText(DateTime d, Func<string, string> text) =>
+            string.Format(CultureInfo.InvariantCulture, text("date.day_month_year"), d.Day, text("date.month_" + d.Month), d.Year);
     }
 }

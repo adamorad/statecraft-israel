@@ -96,8 +96,10 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 .date-row Label { font-size: 15px; margin-right: 8px; }
 .year { -unity-font-definition: url("project://database/Assets/UI/Fonts/EBGaramond-SemiBold.ttf"); font-size: 27px; color: var(--ink); }
 .meters { flex-direction: row; flex-grow: 1; align-items: center; }
+/* Seven meters with Social cohesion (#380): the owner chose "tighten and re-tier" (16 October 2026), so each meter's
+   sides are 6 px narrower than the six meters' 7 and 6 px, here, on the stacked bar and in Hebrew. */
 .meter {
-    flex-direction: row; align-items: center; min-width: 130px; flex-shrink: 1; padding: 0 7px 0 6px;
+    flex-direction: row; align-items: center; min-width: 130px; flex-shrink: 1; padding: 0 4px 0 3px;
     border-right-width: 1px; border-color: rgba(196, 160, 92, 0.25);
 }
 /* The icon gives way first in a narrow window (down to 26px), so the caption keeps its line. */
@@ -149,7 +151,7 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
    change under the value, so no change runs into its neighbour; the panels below the bar move down with it. */
 .hud-narrow .top-bar { height: 124px; }
 .hud-narrow .right-column, .hud-narrow .left-column, .hud-narrow .event-gutter, .hud-narrow .event-layer, .hud-narrow .screen, .hud-narrow .toast { top: 140px; }
-.hud-narrow .meter { min-width: 96px; padding: 0 6px; }
+.hud-narrow .meter { min-width: 96px; padding: 0 3px; }
 .hud-narrow .meter-row { flex-direction: column; align-items: flex-start; }
 .hud-narrow .meter-value { font-size: 22px; }
 .hud-narrow .meter-delta { margin-left: 0; font-size: 15px; }
@@ -158,11 +160,42 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 .hud-two-row .top-bar { height: 216px; padding-top: 6px; padding-bottom: 4px; flex-wrap: wrap; justify-content: space-between; align-content: space-around; }
 .hud-two-row .meters { width: 78%; flex-grow: 1; }
 .hud-two-row .right-column, .hud-two-row .left-column, .hud-two-row .event-gutter, .hud-two-row .event-layer, .hud-two-row .screen, .hud-two-row .toast { top: 232px; }
+/* #380's re-tier gives a square window (1024x1024) the two-row bar: the event layer keeps the 92 px the bar grew by free at its
+   bottom (padding: the backdrop still reaches the window's bottom), so the centred card stays where the stacked bar left it,
+   clear of the map's border label (review B1 of #831; ArmisticeTests). */
+.hud-two-row .event-layer { padding-bottom: 92px; }
 /* Narrower still (a phone upright; HudPresenter adds hud-three-row with hud-two-row): the badge, the meters and the
-   screen buttons with End Turn take a row each, and the panels move down under the taller bar (#210). */
-.hud-three-row .top-bar { height: 312px; }
-.hud-three-row .meters { width: 100%; }
-.hud-three-row .right-column, .hud-three-row .left-column, .hud-three-row .event-gutter, .hud-three-row .event-layer, .hud-three-row .screen, .hud-three-row .toast { top: 328px; }
+   screen buttons with End Turn take a row each, and the panels move down under the taller bar (#210). Seven meters do not
+   fit a phone's width with the widest values (#380): they wrap to two lines (a consequence of the owner's "tighten + re-tier", 16 October 2026), and the bar is a meter line
+   (96 px) taller than the six meters' 312 px. The owner's text floor (#642) raises the small text to 25 px on a 390x844
+   phone: the plate, the meters and the attention line grow, and the bar takes 32 px more (with the widest values and
+   changes its rows end at about 431 px; each meter line already holds two caption lines, Security's level or "International
+   support", so a caption that wraps once more does not add to it). Smaller phones raise it further (26 px at 360x800, 30 px
+   at 375x667; the owner: the floor holds "down to 375x667", and the bar grows taller to fit, review of #859): the bar takes
+   its rows' height when that is more than 440 px, and the panels under it move down by what it grew (HudPresenter.PlaceUnderBar). */
+.hud-three-row .top-bar { height: 440px; }
+.hud-three-row .meters { width: 100%; flex-wrap: wrap; }
+/* Each meter a quarter of the row, so the seven always take two lines (four, then three) and the bar's second line is
+   never an empty band (a phone's turn-1 values would otherwise fit one line). A quarter (~190 px) is wider than the widest
+   meter there (~154 px). */
+.hud-three-row .meter { flex-basis: 25%; flex-grow: 0; flex-shrink: 0; }
+/* At the floor's 25 px (#642) a caption may take most of its quarter, not the 120 px that would break "Immigration" inside the
+   word (170 px: a phone's quarter, about 193 px, keeps 5% free, PromoHudTests), and "Security" and its level, too wide for a
+   quarter side by side, wrap the level under the caption. */
+.hud-three-row .meter .meter-name { max-width: 170px; }
+.hud-three-row .meter-caption-row { flex-wrap: wrap; }
+/* In Hebrew each caption, and Security's wrapped caption row, ends at the text column's right edge (review of #859: the
+   wrapped row had moved to the column's left). */
+.lang-he.hud-three-row .meter-body { align-items: flex-end; }
+.lang-he.hud-three-row .meter-caption-row { justify-content: flex-end; }
+.hud-three-row .right-column, .hud-three-row .left-column, .hud-three-row .event-gutter, .hud-three-row .event-layer, .hud-three-row .screen, .hud-three-row .toast { top: 456px; }
+/* The owner's ruling on #859 (17 October 2026): on a phone no rail button sits under the decision card, Why? and Settings
+   included. The card starts right of the column (the layer's left padding, from its 16 px: the column's 60 px and a 12 px gap; padding, so
+   the backdrop still reaches the column, LeftColumnTests.OnAPhoneThePhotoCardLeavesTheRailClear) and hangs from the layer's
+   top, under the bar, rather than sitting in the middle: centred, the card at 375x667 reached the map's border label above
+   the minimap (since #915 that label is hidden while the card is open, so no test pins this any more). The 88 px at the bottom keep the tallest card off
+   the window's foot (padding, so its backdrop still reaches it, DecisionCardTests.TheBackdropReachesTheWindowsEdgesAtEveryTier). */
+.hud-three-row .event-layer { justify-content: flex-start; padding-left: 72px; padding-bottom: 88px; }
 .turn-box { width: 150px; flex-shrink: 1; min-width: 150px; align-items: flex-end; }
 #attention { font-size: 15px; }   /* the audit's floor (H4): 15 px in the stylesheet */
 .end-turn {
@@ -175,7 +208,7 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
    bottom-right. The right-hand column keeps its 480 px width, so the screens and the border layer's caption stay where
    they were; it now holds only the minimap. */
 .right-column { position: absolute; right: 16px; top: 112px; bottom: 16px; width: 480px; }
-/* HUD round 2, part 2 (#398): promo 03's left icon column, the four screens' round buttons under the bar at the left edge
+/* HUD round 2, part 2 (#398): promo 03's left icon column, the screens' round buttons under the bar at the left edge
    (promo 03: discs about 5.3% of the frame's height, 6.3% apart). Icon-only: the caption is the button's text (the event
    log and the strings read it) but drawn clear; HoverTip shows it beside the disc on hover and on focus. The decision
    card's backdrop, the screens and the toast start right of it (68 px: its 56 px and a 12 px gap), so nothing covers it
@@ -188,6 +221,14 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 .left-column .rail-button { width: 56px; height: 56px; margin: 0 0 12px 0; padding: 0; font-size: 1px; color: rgba(0, 0, 0, 0); }
 .left-column .rail-button:hover, .left-column .rail-button:focus, .left-column .nav-open { color: rgba(0, 0, 0, 0); }
 .left-column .rail-button .nav-disc { top: 0; left: 0; width: 56px; height: 56px; padding: 13px; border-radius: 28px; }
+/* On a phone held upright the panel's scale falls to about 0.41 (375x667), where a 56 px disc is 22.8 px on screen: the
+   column's discs are 60 px there, at least 24 on screen (LeftColumnTests), and the backdrop's strip and the backdrop
+   follow the wider column. */
+.hud-three-row .left-column { width: 60px; }
+.hud-three-row .left-column > .rail-button { width: 60px; height: 60px; }
+.hud-three-row .left-column > .rail-button .nav-disc { width: 60px; height: 60px; padding: 14px; border-radius: 30px; }
+.hud-three-row .event-gutter { width: 76px; }
+.hud-three-row .event-scrim { left: 60px; }
 .right-gap { flex-grow: 1; flex-shrink: 0; min-height: 16px; }
 /* The decision layer: the room under the bar, top per HUD tier as the column's. While an event is open (event-open on the
    root) the map is blocked: the backdrop dims it and takes the pointer, so map clicks and drags stop at it, and
@@ -272,6 +313,8 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 .event-option { min-height: 42px; padding: 5px 12px 5px 46px; margin: 3px 0; border-color: rgba(196, 160, 92, 0.6); }
 .event-title { -unity-text-align: middle-center; margin-bottom: 4px; white-space: normal; font-size: 28px; }   /* centred, as before, in the card */
 .event-text { white-space: normal; margin-bottom: 8px; }
+/* An objective card's line under its text (#380): when it was completed against history. */
+.event-objective { white-space: normal; margin-bottom: 8px; }
 .draft { display: none; color: var(--down); -unity-font-definition: url("project://database/Assets/UI/Fonts/EBGaramond-SemiBold.ttf"); -unity-text-align: middle-center; }
 /* The info panel: the hex's terrain sign (UiIcon on the biome's map colour, InfoPanelPresenter) beside its facts. */
 .info-panel { position: absolute; left: 16px; bottom: 16px; width: 520px; min-height: 160px; flex-direction: row; align-items: flex-start; }
@@ -282,6 +325,15 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 .info-body { flex-grow: 1; flex-shrink: 1; min-width: 0; }
 .info-body > .row { flex-wrap: wrap; }
 .info-body > .row Button { margin-right: 6px; font-size: 18px; }
+/* The GDD loop's part (GddHexPanel, #381): a city's counts, its Assign stepper, Train and Cancel; a site's state and
+   Build/Stop. A second column beside the hex's facts, so the panel stays under the left column on a short window
+   (InfoPanelLayoutTests.TheGddCityAndSitePanelsFitEveryWindow): the panel widens to hold it. Its rows wrap their buttons,
+   a long button label wraps, and a row mirrors in Hebrew (.lang-he .row). */
+.info-panel.info-gdd-shown { width: 920px; }
+.info-gdd { flex-direction: column; width: 380px; flex-shrink: 0; margin-left: 14px; padding-left: 14px; border-left-width: 1px; border-color: var(--gold-dim); }
+.info-gdd-line { font-size: 17px; flex-shrink: 1; }
+.info-gdd-row { flex-wrap: wrap; align-items: center; }
+.info-gdd Button { margin: 2px 6px 2px 0; font-size: 17px; white-space: normal; flex-shrink: 1; }
 /* Before a hex is chosen only the hint shows (InfoPanelPresenter sets info-empty): a one-line chip that hugs its text, as
    the promo shows no panel until a tile is chosen (HUD round 1, #398). */
 .info-panel.info-empty { min-height: 0; width: auto; padding: 8px 16px; }
@@ -299,6 +351,11 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 /* A phone upright (three-row bar): the info panel spans the bottom left, beside the minimap, but the column is tall, so the
    label goes back above the minimap, in the column's flow. */
 .hud-three-row .map-layer { position: relative; right: auto; bottom: auto; align-self: flex-end; max-width: 480px; margin-bottom: 6px; }
+/* While the modal decision card is open (event-modal, ScreenNav.DisableCovered) the legend is hidden: no card, the
+   photograph's included, covers it, and the card keeps its full size (owner, 17 October 2026, "Hide legend under card", on
+   desktop and phone alike; #849). Visibility, not display: GameRoot sets the label's display inline (borders shown or not),
+   and it comes back as it was when the card is hidden or answered. Only the label: the minimap and the map stay. */
+.event-modal .map-layer { visibility: hidden; }
 /* HUD round 2 (#398): promo 03's minimap, the painted relief picture with three round buttons beside it, in one frame. The
    picture's box is as wide as the tall picture needs at this height (MinimapPresenter fits the picture to it). */
 .minimap { align-self: flex-end; flex-shrink: 0; flex-direction: row; width: 222px; height: 380px; padding: 12px; background-color: rgba(9, 14, 26, 0.97); }
@@ -323,7 +380,7 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
     color: var(--ink); background-color: var(--navy-solid); border-color: var(--gold); border-width: 1px; border-radius: 3px;
 }
 
-/* Full screens (Cabinet, Budget, Defence, Why) open in the centre, one at a time. */
+/* Full screens (Cabinet, Budget, Defence, Why, Settings) open in the centre, one at a time. */
 /* Hidden until ScreenNav opens one (never visible while loading; playtest 2, P2-1). Right edge clear of the 480px column. */
 .screen { display: none; position: absolute; left: 552px; right: 512px; top: 112px; bottom: 16px; padding: 18px; background-color: rgb(11, 18, 32); }   /* opaque: a reading screen, and the map labels must not show through */
 .screen-header { flex-direction: column; align-items: stretch; border-bottom-width: 1px; border-color: var(--gold-dim); margin-bottom: 10px; padding-bottom: 4px; }
@@ -339,6 +396,17 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
    lists to it, so a long list scrolls instead of growing out of the screen. */
 .screen .row.grow { align-items: stretch; flex-basis: 0; flex-shrink: 1; min-height: 0; }
 .screen .row.grow > .grow { min-height: 0; flex-shrink: 1; }
+/* Settings (#40): an option's name takes the row's width and wraps; its button keeps room for "On" / "Off". */
+.settings-row { margin-top: 8px; }
+.settings-name { flex-grow: 1; flex-shrink: 1; min-width: 0; white-space: normal; }
+.settings-switch { flex-shrink: 0; min-width: 96px; -unity-text-align: middle-center; }
+/* The quality choice's buttons sit side by side; the one that is set is marked by a gold fill and dark text, not only a
+   border colour, and keeps it while hovered or focused (Button:hover and :focus would otherwise win). */
+.settings-choices { flex-shrink: 0; }
+.settings-choice-selected, .settings-choice-selected:hover, .settings-choice-selected:focus { background-color: var(--gold); color: var(--navy-solid); }
+/* The regular cut's thin strokes fade on the gold. Only as specific as ".lang-he Button", which comes later and keeps
+   the Hebrew face in Hebrew. */
+Button.settings-choice-selected { -unity-font-definition: url("project://database/Assets/UI/Fonts/EBGaramond-SemiBold.ttf"); }
 
 /* The toast sits in the map's free top-left corner, above the info panel: opaque, and never over an open screen's title or
    the minimap column (B7). */
@@ -409,6 +477,14 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 .card-stat-name { width: 82px; flex-shrink: 0; font-size: 14px; color: var(--ink-dim); -unity-text-align: middle-left; padding: 0; margin: 0; }
 .card-stat-value { width: 24px; flex-shrink: 0; font-size: 16px; color: var(--ink); -unity-text-align: middle-right; padding: 0; margin: 0; }
 .seat-selected { border-color: var(--gold-light); background-color: var(--navy-raised); }
+/* The selected seat's tag (#41 M6): a gold band with a word across the foot of the plate, the mark that is not a colour.
+   Absolute, so the card's layout does not move; not a thicker rim, which the border-box would take out of the content
+   and which the audit's L3 proposes for focus. Not in the .seat:focus text list below: it keeps its colours under focus. */
+.card-selected {
+    display: none; position: absolute; left: 0; right: 0; bottom: 0; height: 22px; padding: 0; margin: 0;
+    background-color: var(--gold-light); color: var(--navy-deep); font-size: 15px; -unity-text-align: middle-center;
+}
+.seat-selected .card-selected { display: flex; }
 .seat-vacant .card-name { color: var(--ink-dim); }
 .appointed { color: var(--gold); }
 /* A keyboard-focused card takes the warm focus fill (Button:focus); its dim and gold text turn light to stay legible on it. */
@@ -439,6 +515,9 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 #cabinet-pick-title { white-space: normal; }
 .pm-offices { flex-direction: row; flex-wrap: wrap; margin: -2px 0 8px 0; flex-shrink: 0; }
 .pm-office { font-size: 15px; padding: 3px 10px; margin: 0 6px 4px 0; border-color: rgba(196, 160, 92, 0.6); }
+/* A selected office the Prime Minister holds himself has no plate for the tag (#41 M6): its rim doubles instead, a mark
+   that is not a colour. The padding gives the pixel back, so the button keeps its size. */
+.pm-office.seat-selected { border-width: 2px; padding: 2px 9px; }
 .cabinet-house {
     flex-direction: row; flex-wrap: wrap; align-items: center; flex-shrink: 0; margin: 0 5px 8px 5px; padding: 10px 14px;
     background-color: rgba(5, 9, 18, 0.55); border-width: 1px; border-color: var(--gold-dim); border-radius: 2px;
@@ -452,7 +531,13 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 .house-coalition { font-size: 20px; color: var(--ink); white-space: normal; }
 .house-stability { flex-grow: 0; height: 8px; margin: 3px 0 6px 0; max-width: 360px; }
 .house-legend > Label { padding-top: 0; padding-bottom: 0; }
-.party-chips { flex-direction: row; flex-wrap: wrap; margin-top: 6px; }
+/* The chips in two groups, coalition then opposition, each a wrapping row opened by its side's name (#41 M5). */
+.party-chips { flex-direction: column; margin-top: 6px; }
+.party-group { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.party-group-heading {
+    -unity-font-definition: url("project://database/Assets/UI/Fonts/EBGaramond-SemiBold.ttf");
+    font-size: 14px; color: var(--ink); padding: 0; margin: 0 10px 2px 0;
+}
 .party-chip { flex-direction: row; align-items: center; margin: 0 12px 2px 0; }
 .party-chip > Label { font-size: 14px; color: var(--ink-dim); padding: 0; margin: 0; }
 .party-swatch { width: 11px; height: 11px; border-radius: 6px; margin-right: 5px; }
@@ -512,8 +597,9 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 .hud-two-row .cabinet-house { justify-content: center; }
 
 /* Loading (playtest 2, P2-1): until GameRoot is ready only this line shows; the bar's values, the info panel and the
-   right-hand column are kept out of sight (visibility, so the layout does not jump when they appear). */
-.loading-line { display: none; position: absolute; left: 0; right: 0; top: 45%; -unity-text-align: middle-center; font-size: 28px; color: var(--ink); }
+   right-hand column are kept out of sight (visibility, so the layout does not jump when they appear). A boot failure is
+   longer than the panel at phone width, so the line wraps with a side margin instead of overflowing both edges (#765). */
+.loading-line { display: none; position: absolute; left: 0; right: 0; top: 45%; -unity-text-align: middle-center; font-size: 28px; color: var(--ink); white-space: normal; padding-left: 24px; padding-right: 24px; }
 .loading .loading-line { display: flex; }
 .root.loading { background-color: var(--navy-solid); }   /* the template's navy, not the default sky (final review M1) */
 .loading .date-box, .loading .meters, .loading .nav, .loading .left-column, .loading .turn-box, .loading .info-panel, .loading .right-column, .loading .event-layer { visibility: hidden; }
@@ -540,6 +626,25 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 }
 .map-label-city { font-size: 23px; color: rgb(250, 242, 224); }
 .map-label-town, .map-label-arab_town { font-size: 19px; }
+/* The population tier (#710): the city's static 1948 tier as a gold disc at the start of its name, over the pill's start
+   padding (left, or right in Hebrew). The disc is the pill's sibling in its slot; MapLabelsPresenter sets its left and
+   top from the pill's size. */
+.map-label-with-tier { padding-left: 36px; }
+/* The Hebrew UI mirrors it: the disc starts a Hebrew name on the right (owner, on #897); 12px is .map-label's own padding. */
+.lang-he .map-label-with-tier { padding-left: 12px; padding-right: 36px; }
+.map-label-tier {
+    position: absolute;
+    translate: 0 -50%;
+    width: 23px;
+    height: 23px;
+    margin: 0;
+    padding: 0;
+    border-radius: 12px;
+    background-color: var(--gold);
+    color: rgb(14, 22, 38);
+    font-size: 17px;
+    -unity-text-align: middle-center;
+}
 /* The 1948 localities (named only at close zoom): the same pill, smaller and quieter; today's name in a tooltip under it. */
 .map-label-locality { font-size: 15px; padding: 0 9px 1px 9px; color: rgb(232, 222, 200); background-color: rgba(14, 22, 38, 0.72); }
 .map-label-tooltip {
@@ -622,7 +727,7 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
    in it. Each rule above that names EB Garamond is listed here; HebrewUiTests fails for one that is missed, including the
    classes only presenters add (it gives a label each). */
 .lang-he, .lang-he .title, .lang-he .button, .lang-he Button, .lang-he .year, .lang-he .end-turn, .lang-he .draft,
-.lang-he .why-group, .lang-he .section-title, .lang-he .card-initials, .lang-he .card-name, .lang-he .house-size,
+.lang-he .why-group, .lang-he .party-group-heading, .lang-he .section-title, .lang-he .card-initials, .lang-he .card-name, .lang-he .house-size,
 .lang-he .big-figure, .lang-he .map-label, .lang-he .map-label-tooltip, .lang-he .start-title, .lang-he .start-button {
     -unity-font-definition: url("project://database/Assets/UI/Fonts/FrankRuhlLibre/FrankRuhlLibre-Medium.ttf");
     -unity-text-generator: advanced;
@@ -638,16 +743,19 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 .lang-he .event-reopen, .lang-he .event-hide, .lang-he .event-illustration, .lang-he .start-button, .lang-he .start-listen { -unity-text-align: middle-center; }
 .lang-he .card-stat-name { -unity-text-align: middle-right; }
 .lang-he .card-stat-value { -unity-text-align: middle-left; }
+/* The Hebrew plate shows the first name's initial and the surname ("י. ידין", PersonCard.InitialAndSurname), not two
+   letters: at 36 px the longest, "פ. ברנשטיין", fits the narrowest plate (measured by PromoScreensTests). */
+.lang-he .card-initials { font-size: 36px; }
 .lang-he .top-bar, .lang-he .year-row, .lang-he .date-row, .lang-he .meters, .lang-he .meter, .lang-he .meter-row, .lang-he .nav, .lang-he .row,
 .lang-he .event-foot, .lang-he .event-head, .lang-he .info-panel, .lang-he .info-row, .lang-he .card-stat, .lang-he .pm-offices,
-.lang-he .cabinet-house, .lang-he .party-chips, .lang-he .party-chip, .lang-he .defence-row, .lang-he .leaders, .lang-he .rung,
+.lang-he .cabinet-house, .lang-he .party-group, .lang-he .party-chip, .lang-he .defence-row, .lang-he .leaders, .lang-he .rung,
 .lang-he .defence-budget, .lang-he #cabinet-seats .unity-scroll-view__content-container { flex-direction: row-reverse; }
 .lang-he.hud-narrow .meter-row { flex-direction: column; align-items: flex-end; }
 .lang-he .turn-box { align-items: flex-start; }
 .lang-he .top-bar { padding: 0 8px 0 14px; }
 .lang-he .date-box { margin-right: 0; margin-left: 10px; padding: 0 12px 0 10px; }
 .lang-he .date-row Label { margin-right: 0; margin-left: 8px; }
-.lang-he .meter { border-right-width: 0; border-left-width: 1px; padding: 0 6px 0 7px; }
+.lang-he .meter { border-right-width: 0; border-left-width: 1px; padding: 0 3px 0 4px; }
 .lang-he .meter-icon { margin-right: 0; margin-left: 5px; }
 .lang-he .meter-delta { margin-left: 0; margin-right: 7px; }
 .lang-he.hud-narrow .meter-delta { margin-right: 0; }
@@ -662,6 +770,7 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 .lang-he .pm-office { margin: 0 0 4px 6px; }
 .lang-he .hemicycle-box { margin-right: 0; margin-left: 18px; }
 .lang-he .party-chip { margin: 0 0 2px 12px; }
+.lang-he .party-group-heading { margin: 0 0 2px 10px; }
 .lang-he .party-swatch { margin-right: 0; margin-left: 5px; }
 .lang-he .rung { border-left-width: 0; border-right-width: 3px; }
 .lang-he .rung-target { border-left-width: 1px; border-right-width: 3px; }
@@ -673,3 +782,11 @@ Button:disabled { color: var(--ink-dim); border-color: rgba(120, 120, 120, 0.4);
 .lang-he .end-turn { padding: 4px 40px 4px 14px; }
 /* A bar fills from the right: the whole bar is flipped, so its fill and its mark (placed from the left in code) follow. */
 .lang-he .ui-bar { scale: -1 1; }
+
+/* #381: in Hebrew the GDD column's rule and margins mirror; on the two- and three-row HUD (narrower windows, taller) the
+   panel keeps its 520 px and the GDD part stacks under the hex's facts, clear of the minimap. Last, so they win over the
+   rules above at equal specificity. */
+.lang-he .info-gdd { margin-left: 0; padding-left: 0; border-left-width: 0; margin-right: 14px; padding-right: 14px; border-right-width: 1px; }
+.lang-he .info-gdd Button { margin: 2px 0 2px 6px; }
+.hud-two-row .info-panel.info-gdd-shown { width: 520px; flex-wrap: wrap; }
+.hud-two-row .info-gdd { width: 100%; margin: 8px 0 0 0; padding: 8px 0 0 0; border-left-width: 0; border-right-width: 0; border-top-width: 1px; }

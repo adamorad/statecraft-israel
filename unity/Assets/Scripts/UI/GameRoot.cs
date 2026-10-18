@@ -28,6 +28,9 @@ namespace Statecraft.Game.UI
     {
         /// <summary>Turns a bare smoke flag ("?smoke", "-smoke") plays.</summary>
         internal const int DefaultSmokeTurns = 5;
+        /// <summary>Maximum time after closing the start screen for the normal-media browser check's first card to become usable.
+        /// This proposed budget needs maintainer sign-off (#909).</summary>
+        internal const double FirstCardBudgetSeconds = 10;
 
         [SerializeField] GameBoot boot = null!;
         [SerializeField] UIDocument document = null!;
@@ -56,6 +59,8 @@ namespace Statecraft.Game.UI
         OutcomePresenter? outcomes;
         CameraRig? rig;
         List<(string, int, int, DateTime)>? drawn;
+        /// <summary>The designated sites on the map (#381), made on first use beside the placements; and their states as drawn.</summary>
+        SiteLayer? siteLayer; List<string>? drawnSites;
 
         public SimBridge? Bridge { get; private set; }
         /// <summary>Where the autosave lives; null (the default) = SaveStore.ForPlatform(). Tests set a temporary folder.</summary>
@@ -89,13 +94,14 @@ namespace Statecraft.Game.UI
             if ((boot == null || boot.Error == null) && Bridge == null) ShowLoading();
         }
 
-        /// <summary>A boot failure replaces the loading line with the reason; the loading state stays, so no half-built panel
-        /// shows (M3 final review I5).</summary>
+        /// <summary>A boot failure replaces the loading line with a short reason in the player's language; the loading state
+        /// stays, so no half-built panel shows (M3 final review I5). <paramref name="reason"/> is an exception's English text
+        /// (a file path, a content error): it stays in GameBoot.Error and the log, never on screen (#637).</summary>
         internal void OnBootFailed(string reason)
         {
             var text = ShowLoading();
             var line = text == null ? null : document.rootVisualElement.Q<Label>("loading");
-            if (line != null) Say(line, text!.Format("boot.failed", GameBoot.ForPlayer(reason).TrimEnd('.')), text["ui.lang"] == UiLanguage.Hebrew);
+            if (line != null) Say(line, text!.Format("boot.failed", text["boot.reason_other"]), text["ui.lang"] == UiLanguage.Hebrew);
         }
 
         /// <summary>Puts the loading line in the UI's language (boot.loading, #193). In Hebrew the root also gets its mark
@@ -223,17 +229,22 @@ namespace Statecraft.Game.UI
             Own(new DefencePresenter(root, bridge, text, portraits));
             Own(new BudgetPresenter(root, bridge, text));
             Own(new WhyPresenter(root, bridge, text));
+            // Presentation only (#40): never the sim or the save. Outside Play mode (EditMode tests) no file: the developer's
+            // own settings must not leak into a test. Each Begin (New Game too) reads the file again.
+            Own(new SettingsPresenter(root, text, Application.isPlaying ? SettingsStore.ForPlatform() : null));
             Own(new CabinetPresenter(root, bridge, text, portraits));
             var names = map.SettlementsFor(inputs.Map.SettlementsYaml).ToDictionary(s => s.Id, s => s.Name);   // the map's parse (issue #321)
             // The 1948 sub-districts, outlined on the map, and each front's 1949 armistice line from its agreement's date
             // where the line exists (display only: the sim never reads them; docs/visual-v1.md, owner rulings 2026-10-11).
-            // Since the owner's rulings of 2026-10-14 the areas are coloured by side from 11 June 1948 (control_hexes_1948_49.yaml),
+            // Since the owner's rulings of 2026-10-14 the areas are coloured by side (control_hexes_1948_49.yaml), from 15 May 1948
+            // since #674 (the 9 July 1948 lines, adjusted),
             // with the legend in the label.
             // From their runtime forms when they match the YAML (issue #321: boot time), the sub-districts as the map read them.
             var regions = new MapRegions(map.SubdistrictsFor(inputs.Map.RegionsTsv, inputs.Map.RegionsYaml, Debug.LogWarning),
                 string.IsNullOrWhiteSpace(inputs.Map.ArmisticeYaml) ? null : Armistice1949.ReadRuntimeOrYaml(inputs.Map.ArmisticeTsv, inputs.Map.ArmisticeYaml, Debug.LogWarning),
                 string.IsNullOrWhiteSpace(inputs.Map.ControlYaml) ? null : Control1948.ReadRuntimeOrYaml(inputs.Map.ControlTsv, inputs.Map.ControlYaml, Debug.LogWarning));
             Regions = regions;
+            map.Control = regions.Control;   // the road vehicles stand only where Israel held the ground (#725)
             var layerLabel = root.Q<Label>("map-layer");
             Action onDate = () =>
             {
@@ -270,7 +281,9 @@ namespace Statecraft.Game.UI
             var localitiesAt = LocalitiesAt(map);
             var info = Own(new InfoPanelPresenter(root, bridge, text, names, nav: nav,
                 selectedUnit: () => unitLayer.Selected is string id ? unitLayer.Tokens.First(p => p.Token.Unit.Id == id) : (Statecraft.Game.Map.Units.PlacedToken?)null,
-                regions: regions, localitiesAt: localitiesAt));
+                regions: regions, localitiesAt: localitiesAt,
+                townHex: InfoPanelPresenter.TownHex(map.SettlementsFor(inputs.Map.SettlementsYaml), map.Hexes),
+                townNamesHe: map.SettlementsFor(inputs.Map.SettlementsYaml).ToDictionary(s => s.Id, s => s.NameHe)));
             // A smoke session never touches the player's save: no autosave, and no New Game (which deletes the autosave).
             // Leaving New Game out is safer than handing it a throwaway store: no file is ever deleted, no path has to be
             // right on every platform, and the scripted run never presses it.
@@ -306,7 +319,11 @@ namespace Statecraft.Game.UI
                     if (unitLayer == null) return null;
                     unitLayer.FaceCamera(labelCamera);
                     return unitLayer.KeepClear;
-                }));
+                },
+                // Issue #710: the static 1948 tier from cities.yaml's people, not the sim's live count (owner, 15 October 2026).
+                bridge.Content.Cities.Where(c => c.People != null).ToDictionary(c => c.Id, c => c.People!.Value),
+                (tier, people) => text.Format("map.tier", tier, MapLabelsPresenter.TierCount, people.ToString("N0", CultureInfo.InvariantCulture)),
+                hebrew));
             mini.Clicked += (lon, lat) => { camRig.LookAt = map.Frame.ToWorld(lon, lat, 0); cameraController.Settle(); SyncMinimap(); labels?.Refresh(); };   // the click may come after LateUpdate (review M6)
             // The minimap's whole-map button: the camera's own farthest zoom, over the middle of the map (no new rule).
             mini.Overview += () =>
@@ -335,7 +352,7 @@ namespace Statecraft.Game.UI
                 cameraController.Bounds = oldBounds;
                 cameraController.Ground = oldGround; cameraController.GroundTop = oldTop;
             }));
-            drawn = null;
+            drawn = null; drawnSites = null;
             RenderPlacementsIfChanged();
             SyncMinimap();
             // The start screen goes up in the same frame the loading state ends, so the HUD never flashes before it. While it
@@ -353,6 +370,11 @@ namespace Statecraft.Game.UI
 
             if (notes.Count > 0) toast.Show(notes);
             Debug.Log(FormattableString.Invariant($"GAME OK {bridge.State.Date:yyyy-MM-dd} turn {bridge.State.Turn} hash {bridge.State.Hash()}"));
+            // Unlike the other browser instruments, ?firstcard keeps the normal start screen, clip mapping and video players.
+            // It closes the screen through its real button immediately, then gives tools/web_check.py a bounded result to
+            // wait for. Console exceptions are collected by that browser-side check (#910).
+            if (Application.isPlaying && FirstCardCheckRequested())
+                StartCoroutine(FirstCardCheck(root, card!, Debug.Log));
             if (smoke > 0)
             {
                 if (Application.isPlaying) StartCoroutine(Smoke(root, bridge, card!, smoke, Debug.Log));
@@ -410,7 +432,7 @@ namespace Statecraft.Game.UI
             if (card != null) { owned.Remove(card); card.Dispose(); }
             for (int i = owned.Count - 1; i >= 0; i--) owned[i].Dispose();
             owned.Clear();
-            minimap = null; labels = null; nav = null; start = null; card = null; outcomes = null; rig = null; drawn = null; units = null; Regions = null; logCamera = false;
+            minimap = null; labels = null; nav = null; start = null; card = null; outcomes = null; rig = null; drawn = null; drawnSites = null; units = null; Regions = null; logCamera = false;
             // A ?profile run cut short (a stopped coroutine never reaches its restore line) must not leave the terrain at the
             // profile's pixel error (Task 24 review M1). Nothing else changes it, so restoring is always right.
             if (map != null && map.Terrain != null) map.Terrain.heightmapPixelError = MapBuilder.TerrainPixelError;
@@ -422,10 +444,39 @@ namespace Statecraft.Game.UI
         {
             if (Bridge == null) return;
             Statecraft.Game.Map.Routes.RouteLayer.ShowAt(map, Bridge.State.Date);   // dated routes (the Burma Road from June 1948)
+            // MATKOT's whole-town models on their towns far off (#663, "Whole model far, buildings near"), streamed after the first frame; the ma'abara from its date.
+            Statecraft.Game.Map.Collection.TownLandmarks.ShowAt(map, Bridge.State.Date, Bridge.State.Placements, Bridge.Content);
+            // MATKOT's ibex and striped hyena, sparse in their sourced terrain zones and visible only at close zoom (#670).
+            Statecraft.Game.Map.Collection.WildlifeLayer.Show(map);
+            // MATKOT's civilian figures at towns and transit camps, ambience only and streamed after the first frame (#666).
+            Statecraft.Game.Map.Collection.CivilianPeople.ShowAt(map, Bridge.State.Date, Bridge.State.Placements, Bridge.Content);
+            // MATKOT's period-generic farm and village scenery, streamed after the first frame (#667); never game units.
+            Statecraft.Game.Map.Collection.RuralLife.Show(map);
+            // MATKOT's Tegart fort, barracks and factory at their sourced places and dates, close up only, streamed (#707).
+            Statecraft.Game.Map.Collection.SpecialBuildingModels.ShowAt(map, Bridge.State.Date);
+            RenderSitesIfChanged();
             var now = Bridge.State.Placements.Select(p => (p.Action, p.Q, p.R, p.Date)).ToList();
             if (drawn != null && drawn.SequenceEqual(now)) return;
             drawn = now;
             placements.Render(Bridge.State.Placements, Bridge.Content, map);
+        }
+
+        /// <summary>Draws the designated sites (#381) only when a site's state differs from what was drawn: being built, or
+        /// built on its date.</summary>
+        void RenderSitesIfChanged()
+        {
+            if (Bridge == null) return;
+            var now = Bridge.State.Sites.Values.Select(w => w.Site + ":" + (w.BuiltOn?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) ?? "building")).ToList();
+            if (drawnSites != null && drawnSites.SequenceEqual(now)) return;
+            drawnSites = now;
+            if (siteLayer == null)
+            {
+                siteLayer = new GameObject("Sites").AddComponent<SiteLayer>();
+                siteLayer.transform.SetParent(placements.transform.parent, false);
+            }
+            siteLayer.Render(Bridge.State.Sites.Values, Bridge.Content, map);
+            // A built site's name is a map pill like a town's (#381), against its kit's columns.
+            labels?.SetSites(siteLayer.Places.Select(p => (p, siteLayer.Columns.TryGetValue(p.Id, out var c) ? c : (Bounds[]?)null)).ToList());
         }
 
         void SyncMinimap()
@@ -447,6 +498,46 @@ namespace Statecraft.Game.UI
 
         internal static string CameraLine(float distance, float yaw) => FormattableString.Invariant($"CAMERA distance={distance:0} yaw={yaw:0.0}");
 
+        /// <summary>"firstcard" asks a player build to exercise the first card through the normal media path. It deliberately
+        /// is not one of StartScreenPresenter.Skipped or CardVideo.ForcedOff's automation flags.</summary>
+        internal static bool FirstCardCheckRequested(string? url, string[] args, bool webgl) =>
+            webgl ? UrlFlags.Has(url, "firstcard") : Array.IndexOf(args, "-firstcard") >= 0;
+
+        internal static bool FirstCardCheckRequested() =>
+            FirstCardCheckRequested(Application.absoluteURL, Environment.GetCommandLineArgs(), Application.platform == RuntimePlatform.WebGLPlayer);
+
+        /// <summary>Closes a fresh game's start screen at once through New Game and waits at most
+        /// <see cref="FirstCardBudgetSeconds"/> seconds for an enabled option plus the archival photograph or documented
+        /// minister-portrait fallback. The browser check treats FIRST CARD FAIL and console exceptions as failures.</summary>
+        internal static IEnumerator FirstCardCheck(VisualElement root, EventCardPresenter card, Action<string> log,
+            Func<double>? now = null)
+        {
+            now ??= () => Time.realtimeSinceStartupAsDouble;
+            var began = now();
+            var hud = root.Q("root") ?? root;
+            if (!hud.ClassListContains(StartScreenPresenter.OpenClass))
+            {
+                log("FIRST CARD FAIL start screen is not open");
+                yield break;
+            }
+            if (!Press(root.Q<Button>("start-new-game"), s => log(s.Replace("SMOKE FAIL", "FIRST CARD FAIL")))) yield break;
+            while (now() - began <= FirstCardBudgetSeconds)
+            {
+                var option = root.Q<VisualElement>("event-options")?.Q<Button>();
+                bool photo = root.Q<VisualElement>("event-photo")?.style.display.value == DisplayStyle.Flex;
+                bool portrait = root.Q<VisualElement>("event-image")?.style.display.value == DisplayStyle.Flex;
+                if (!hud.ClassListContains(StartScreenPresenter.OpenClass) && card.Shown != null && !card.Collapsed &&
+                    !card.PhotoWaits && option != null && option.enabledInHierarchy && (photo || portrait))
+                {
+                    var wait = (now() - began) * 1000;
+                    log(FormattableString.Invariant($"FIRST CARD OK event={card.Shown.Id} media={(photo ? "photo" : "portrait fallback")} wait={wait:0} ms budget={FirstCardBudgetSeconds * 1000:0} ms"));
+                    yield break;
+                }
+                yield return null;
+            }
+            log(FormattableString.Invariant($"FIRST CARD FAIL not interactive after {FirstCardBudgetSeconds * 1000:0} ms"));
+        }
+
         /// <summary>After every Update (CameraController moves the camera in its Update), so the pills never trail the camera.</summary>
         void LateUpdate()
         {
@@ -467,6 +558,16 @@ namespace Statecraft.Game.UI
             // With nothing else to close, Escape on the open decision card is Hide (EventCardPresenter.Escape; the card itself
             // takes the Cancel event when it has the focus).
             if (UnityEngine.InputSystem.Keyboard.current?.escapeKey.wasPressedThisFrame == true) { bool done = outcomes?.SkipAll() == true || outcomes?.ClosedThisFrame == true; done |= start?.Escape() == true; done |= nav?.Close() == true; if (!done && document.rootVisualElement.focusController?.focusedElement == null) card?.Escape(); }
+            // PageUp, PageDown, Home and End, with no modifier, scroll the open screen or the open card's text, with or without
+            // focus (KeyScroll; accessibility audit H3), but not under an End Turn outcome clip, which covers them. The arrows
+            // stay with the camera (NavigationGuard, B6).
+            var keys = UnityEngine.InputSystem.Keyboard.current;
+            if (keys != null && outcomes?.Showing == null && !(keys.ctrlKey.isPressed || keys.altKey.isPressed || keys.shiftKey.isPressed || keys.leftMetaKey.isPressed || keys.rightMetaKey.isPressed))
+            {
+                KeyScroll.Key? page = keys.pageUpKey.wasPressedThisFrame ? KeyScroll.Key.PageUp : keys.pageDownKey.wasPressedThisFrame ? KeyScroll.Key.PageDown
+                    : keys.homeKey.wasPressedThisFrame ? KeyScroll.Key.Home : keys.endKey.wasPressedThisFrame ? KeyScroll.Key.End : (KeyScroll.Key?)null;
+                if (page != null) KeyScroll.Press(document.rootVisualElement, nav?.Current, card?.Shown != null && !card.Collapsed, page.Value);
+            }
             SyncMinimap();
             if (!logCamera || rig == null || (rig.Distance == loggedDistance && rig.Yaw == loggedYaw)) return;
             loggedDistance = rig.Distance; loggedYaw = rig.Yaw;

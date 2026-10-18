@@ -67,12 +67,28 @@ public class UnitsInPlayTests
     public void EveryRowIsSourcedDatedAndOnTheMap()
     {
         var units = Units;
-        Assert.AreEqual(12, units.Count(u => u.Service == UnitData.Army), "the twelve brigades of 1948");
-        Assert.AreEqual(1, units.Count(u => u.Service == UnitData.Air));
-        Assert.AreEqual(2, units.Count(u => u.Service == UnitData.Navy));
-        CollectionAssert.AreEquivalent(new[] { "brigade_8", "oded" }, units.Where(u => u.Hidden != null).Select(u => u.Id),
+        var israel = units.Where(u => u.Side == UnitData.Israel).ToList();
+        Assert.AreEqual(12, israel.Count(u => u.Service == UnitData.Army), "the twelve brigades of 1948");
+        Assert.AreEqual(1, israel.Count(u => u.Service == UnitData.Air));
+        Assert.AreEqual(2, israel.Count(u => u.Service == UnitData.Navy));
+        CollectionAssert.AreEquivalent(new[] { "brigade_8", "oded" }, israel.Where(u => u.Hidden != null).Select(u => u.Id),
             "hidden: Oded (no sourced position) and the 8th (sourced at Tel Litvinsky, no clear spot on its own side); Carmeli (from 9 July 1948, by Mishmar HaYarden) and Alexandroni are placed (refs #385)");
         double lon0 = C.Hexes.Min(h => h.Lon), lon1 = C.Hexes.Max(h => h.Lon), lat0 = C.Hexes.Min(h => h.Lat), lat1 = C.Hexes.Max(h => h.Lat);
+        // The Arab forces (#740): data only, each with its echelon and its 15 May strength (owner, 17 October 2026).
+        var arab = units.Where(u => u.Side != UnitData.Israel).ToList();
+        CollectionAssert.AreEquivalent(new[] { "egypt", "jordan", "syria", "iraq", "lebanon", "ala" }, arab.Select(u => u.Side).Distinct());
+        foreach (var u in arab)
+        {
+            CollectionAssert.Contains(UnitData.Echelons, u.Echelon, u.Id);
+            Assert.IsNotNull(u.Strength, u.Id);
+            Assert.Greater(u.Strength.Value, 0, u.Id);
+            Assert.AreEqual(new DateTime(1948, 5, 15), UnitData.Day(u.Strength.AsOf), $"{u.Id}: the 15 May strength only");
+            Assert.IsNotEmpty(u.Strength.Sources, u.Id);
+        }
+        // Owner, 17 October 2026, on #860: "Isdud is the forward base and Majdal the rear base" at the first truce.
+        var truce = new DateTime(1948, 6, 11);
+        CollectionAssert.AreEquivalent(new[] { "Isdud", "Majdal" }, units.Single(u => u.Id == "egyptian_expeditionary_force").Anchors
+            .Where(a => UnitData.Day(a.From) <= truce && truce < UnitData.Day(a.To)).Select(a => a.Place.Split(',')[0]));
         foreach (var u in units)
         {
             Assert.AreEqual("draft", u.Status, u.Id);
@@ -95,8 +111,11 @@ public class UnitsInPlayTests
                 if (u.Disbanded != null) Assert.LessOrEqual(UnitData.Day(a.To), UnitData.Day(u.Disbanded.Date), $"{at}: after its disbandment");
                 Assert.AreNotEqual("15 May 1948", a.Since, $"{at}: the game's first day is not a sourced arrival");
             }
-            for (int i = 1; i < u.Anchors.Count; i++)
-                Assert.LessOrEqual(UnitData.Day(u.Anchors[i - 1].To), UnitData.Day(u.Anchors[i].From), $"{u.Id}: anchor windows in order, not overlapping");
+            // A drawn row stands at one place at a time (one token per row). A row the map does not draw may stand at two
+            // at once: the Egyptian force's forward and rear bases at the first truce (owner, 17 October 2026, on #860).
+            if (UnitRoster.OnMap(u))
+                for (int i = 1; i < u.Anchors.Count; i++)
+                    Assert.LessOrEqual(UnitData.Day(u.Anchors[i - 1].To), UnitData.Day(u.Anchors[i].From), $"{u.Id}: anchor windows in order, not overlapping");
         }
         Assert.AreEqual(new DateTime(1949, 2, 24), UnitData.FrontArmistice["egypt"]);
         Assert.AreEqual(new DateTime(1949, 3, 23), UnitData.FrontArmistice["lebanon"]);
@@ -104,11 +123,32 @@ public class UnitsInPlayTests
         Assert.AreEqual(LastArmistice, UnitData.FrontArmistice["syria"]);
     }
 
+    /// <summary>#902: 20 Hebrew names, each from a cited IDF, Palmach, Haganah Heritage or other Israeli page. INS Haganah's
+    /// name stays absent until a reviewer settles its spelling; every agent-checked value carries its own dated source
+    /// pending the native-speaker review in #564.</summary>
+    [Test]
+    public void HebrewUnitNamesAreSourcedAndAgentChecked()
+    {
+        var units = Units;
+        CollectionAssert.AreEquivalent(new[] { "ins_haganah" },
+            units.Where(u => string.IsNullOrEmpty(u.NameHe)).Select(u => u.Id));
+        foreach (var u in units.Where(u => !string.IsNullOrEmpty(u.NameHe)))
+        {
+            StringAssert.IsMatch("[א-ת]", u.NameHe, u.Id);
+            Assert.AreEqual("agent-checked", u.NameHeReview, u.Id);
+            Assert.IsNotEmpty(u.NameHeSources, u.Id);
+            Assert.That(u.NameHeSources.All(s => s.Url.StartsWith("https://", StringComparison.Ordinal) && !string.IsNullOrEmpty(s.Checked)), u.Id);
+        }
+    }
+
     const string Anchor = "{place: P, lon: 34.8, lat: 32.0, from: '1948-05-15', to: '1948-06-01', end_basis: source, end_note: n, sources: [{url: 'https://x.org', checked: '2026-10-11'}]}";
     const string Unit = "units:\n- {id: a, name: A, number: '1', service: army, side: israel, sector: s, status: draft, wikipedia_only: true, anchors: [";
 
     [TestCase("units: []", "no units")]
     [TestCase("units:\n- {id: a, name: A, number: '1', service: cavalry, side: israel, sector: s, status: draft, wikipedia_only: true, anchors: []}", "unknown service 'cavalry'")]
+    [TestCase("units:\n- {id: a, name: A, name_he: אב, number: '1', service: army, side: israel, sector: s, status: draft, wikipedia_only: true, anchors: []}", "name_he_sources is empty")]
+    [TestCase("units:\n- {id: a, name: A, name_he_sources: [{url: 'https://x.org', checked: '2026-10-17'}], number: '1', service: army, side: israel, sector: s, status: draft, wikipedia_only: true, anchors: []}", "name_he_sources is set without name_he")]
+    [TestCase("units:\n- {id: a, name: A, name_he: אב, name_he_sources: [{url: 'https://x.org', checked: '2026-10-17'}], name_he_review: reviewed, number: '1', service: army, side: israel, sector: s, status: draft, wikipedia_only: true, anchors: []}", "name_he_review must be agent-checked")]
     [TestCase("units:\n- {id: a, name: A, number: '1', service: army, sector: s, status: draft, wikipedia_only: true, anchors: []}", "unknown side ''")]
     [TestCase("units:\n- {id: a, name: A, number: '1', service: army, side: atlantis, sector: s, status: draft, wikipedia_only: true, anchors: []}", "unknown side 'atlantis'")]
     [TestCase(Unit + "]}", "'a' has no anchors")]
@@ -126,6 +166,11 @@ public class UnitsInPlayTests
     [TestCase("units:\n- {id: a, name: A, number: '1', service: army, side: israel, sector: s, status: draft, wikipedia_only: true, headgear: [wool_cap, wool_cap, wool_cap], anchors: [" + Anchor + "]}", "headgear has no source")]
     [TestCase("units:\n- {id: a, name: A, number: '1', service: air, side: israel, sector: s, status: draft, wikipedia_only: true, anchors: [" + Anchor + "]}", "without aircraft")]
     [TestCase("units:\n- {id: a, name: A, number: '1', service: army, side: israel, colour: red, sector: s, status: draft, wikipedia_only: true, anchors: []}", "colour")]
+    // The Arab forces' rows (#570, #740): an echelon and one strength, never a range (CONTENT_POLICY section 1).
+    [TestCase("units:\n- {id: a, name: A, number: '1', service: army, side: egypt, sector: s, status: draft, wikipedia_only: true, anchors: [" + Anchor + "]}", "needs an echelon and a strength")]
+    [TestCase("units:\n- {id: a, name: A, number: '1', service: army, side: egypt, echelon: corps, strength: {value: 10, as_of: '1948-05-15', sources: [{url: 'https://x.org', checked: '2026-10-11'}]}, sector: s, status: draft, wikipedia_only: true, anchors: [" + Anchor + "]}", "unknown echelon 'corps'")]
+    [TestCase("units:\n- {id: a, name: A, number: '1', service: army, side: egypt, echelon: force, strength: {value: '6,000 to 12,000', as_of: '1948-05-15', sources: [{url: 'https://x.org', checked: '2026-10-11'}]}, sector: s, status: draft, wikipedia_only: true, anchors: [" + Anchor + "]}", "u.yaml")]
+    [TestCase("units:\n- {id: a, name: A, number: '1', service: army, side: egypt, echelon: force, strength: {value: 10, as_of: '1948-05-15', sources: []}, sector: s, status: draft, wikipedia_only: true, anchors: [" + Anchor + "]}", "strength has no source")]
     // A person's sign-off (#375): both or neither, a GitHub handle (never an email), a day.
     [TestCase("units:\n- {id: a, name: A, number: '1', service: army, side: israel, sector: s, status: draft, reviewed_by: eyalgolan, wikipedia_only: true, anchors: [" + Anchor + "]}", "reviewed_on")]
     [TestCase("units:\n- {id: a, name: A, number: '1', service: army, side: israel, sector: s, status: draft, reviewed_by: a@example.org, reviewed_on: '2026-10-15', wikipedia_only: true, anchors: [" + Anchor + "]}", "reviewed_by")]
@@ -169,6 +214,51 @@ public class UnitsInPlayTests
         CollectionAssert.AreEqual(new[] { UnitData.WoolCap, UnitData.SteelHelmet, UnitData.WoolCap }, tokens.Single(t => t.Unit.Id == "negev").Headgear,
             "the Negev Brigade's headgear is sourced to its 1948 photographs");
         CollectionAssert.AreEqual(UnitData.DefaultHeadgear, tokens.Single(t => t.Unit.Id == "givati").Headgear, "no source: the uniform default");
+    }
+
+    /// <summary>Owner, 17 October 2026 (#740): "Data only. PR 1 adds the sourced Arab rows to units_1948.yaml and filters
+    /// them off the map in UnitRoster until Phase 5 PR 17's figures land ... Nothing is drawn with IDF figures, and there is
+    /// no placeholder art." MATKOT's figures have landed for two forces (issue #665; owner, 17 October 2026, #756: MATKOT's
+    /// unit models count as reviewed and approved): the Arab Legion and the Arab Liberation Army. Every other side's rows
+    /// stay data only, on every day of the war, and the placer gives them no spot (so the kits clear no ground for them).
+    /// The two forces are drawn only once their own figure has arrived, with three of it and nothing else: until then the
+    /// 15 May roster is exactly Israel's tokens.</summary>
+    [Test]
+    public void OnlyTheForcesWithAFigureAreDrawnAndOnlyOnceItHasArrived()
+    {
+        var units = Units;
+        var others = units.Where(u => u.Side != UnitData.Israel).ToList();
+        Assert.IsNotEmpty(others.Where(u => u.Hidden == null && u.Anchors.Count > 0), "the file holds Arab rows with anchors (#740)");
+        var drawn = new[] { "arab_legion", "arab_liberation_army" };
+        CollectionAssert.AreEquivalent(drawn, others.Where(UnitRoster.OnMap).Select(u => u.Id), "the forces with a Collection figure");
+        var israelOnly = units.Where(u => u.Side == UnitData.Israel).ToList();
+        var s = Simulation.NewGame(C, GoldenRun.Seed, Mode.Historical);
+        CollectionAssert.AreEqual(Ids(UnitRoster.Build(israelOnly, C, s)), Ids(UnitRoster.Build(units, C, s)), "before any figure arrives: Israel's tokens, exactly");
+        CollectionAssert.AreEqual(Ids(UnitRoster.Build(israelOnly, C, s)), Ids(UnitRoster.Build(units, C, s, id => false)), "nor while none has");
+        var seen = new HashSet<string>();
+        for (var d = C.Rules.Start; d < LastArmistice; d = d.AddDays(1))
+        {
+            var none = UnitRoster.Build(units, C.Rules, d, 5, 0.8);
+            Assert.IsTrue(none.All(t => t.Unit.Side == UnitData.Israel), $"{d:yyyy-MM-dd}: no figure has arrived: {string.Join(",", none.Where(t => t.Unit.Side != UnitData.Israel))}");
+            foreach (var t in UnitRoster.Build(units, C.Rules, d, 5, 0.8, id => true).Where(t => t.Unit.Side != UnitData.Israel))
+            {
+                CollectionAssert.Contains(drawn, t.Unit.Id, $"{d:yyyy-MM-dd}");
+                Assert.AreEqual(UnitFigures.SideFigure(t.Unit.Side), t.ArtType, $"{t}: its own figure");
+                Assert.AreEqual(3, t.Figures, $"{t}: Q-UI-3 at full strength (owner, 17 October 2026, #226)");
+                Assert.IsEmpty(t.Headgear, $"{t}: no IDF rifleman's headgear");
+                Assert.IsEmpty(t.Vehicles, $"{t}: no vehicle");
+                seen.Add(t.Unit.Id);
+            }
+            var legionOnly = UnitRoster.Build(units, C.Rules, d, 5, 0.8, id => id == UnitFigures.ArabLegion);
+            Assert.IsFalse(legionOnly.Any(t => t.Unit.Id == "arab_liberation_army"), $"{d:yyyy-MM-dd}: the ALA waits for its own figure");
+        }
+        CollectionAssert.AreEquivalent(drawn, seen, "both forces stand on the map on their sourced days");
+        var hexes = C.Hexes;
+        var spots = UnitPlacer.PlaceAll(units, hexes, 5000, (lon, lat) => (lon * 1e5, lat * 1e5), (sv, x, z, c, t, ax, az) => true, (x, z) => 0.0);
+        var dataOnly = others.Where(u => !drawn.Contains(u.Id)).ToList();
+        Assert.IsFalse(dataOnly.SelectMany(u => u.Anchors).Any(spots.ContainsKey), "no spot for a row the map does not draw");
+        Assert.IsEmpty(UnitPlacer.SkipMessages(dataOnly, spots), "and no warning for it either");
+        Assert.IsTrue(others.Where(u => drawn.Contains(u.Id)).SelectMany(u => u.Anchors).All(spots.ContainsKey), "a spot for each drawn force's anchor");
     }
 
     [TestCase(0.80, 3)]
@@ -256,8 +346,10 @@ public class UnitsInPlayTests
     }
 
     // GDD Phase 2 PR 1 (the cutover): the golden run is 20 monthly turns with the reference player (was f07b1655).
-    const string RosterGolden1950 = "573f30998628a434e6b4156cba5d20f8d974ca28b62f74388f9480de84592baa";
-    const string WeeklyGolden = "323cbe046b9666b1d9ab46abeb139540d6e06e394a65ad03e043aa0912cba96e";
+    // Issue #665: each token's line now ends with its sourced vehicles ("+figure-vehicle-..."), the 65 mm gun and the jeep
+    // (was 573f3099... and 323cbe04...; every line is otherwise the same, checked against main's logged rosters).
+    const string RosterGolden1950 = "0612f518c91b436ab5dbe1bf75a52d266a7c617255a4622030d01e51d852a03b";
+    const string WeeklyGolden = "db15a031d3d15961053161ab132363c19566d98e5ad310dc08ce2e79f742a4fc";
 
     // ---- Placement, the layer and the card (a built map) ---------------------------------------------------------
 
@@ -290,7 +382,7 @@ public class UnitsInPlayTests
             var layer = UnitLayer.Create(map, units, C.Hexes, still: true);
             float hex = map.Hexes.hex_size_km * 1000f;
             var hexAt = C.Hexes.ToDictionary(h => (h.Q, h.R));
-            var anchors = units.Where(u => u.Hidden == null).SelectMany(u => u.Anchors.Select(a => (u, a))).ToList();
+            var anchors = units.Where(UnitRoster.OnMap).SelectMany(u => u.Anchors.Select(a => (u, a))).ToList();
             var log = new List<string>();
             foreach (var (u, a) in anchors)
             {
@@ -371,7 +463,7 @@ public class UnitsInPlayTests
         var units = Units;
         var layer = UnitLayer.Create(map, units, C.Hexes, still: true);
         int outside = 0, inTown = 0;
-        foreach (var u in units.Where(u => u.Hidden == null && u.Service != UnitData.Navy))
+        foreach (var u in units.Where(u => UnitRoster.OnMap(u) && u.Service != UnitData.Navy))
             foreach (var a in u.Anchors)
             {
                 var at = $"{u.Id} {a.Place}";
@@ -567,6 +659,104 @@ public class UnitsInPlayTests
             for (int j = i + 1; j < 3; j++)
                 Assert.GreaterOrEqual((o[i] - o[j]).magnitude * step, 1800f, "a figure is about 0.85 km wide at 1,400x: keep a gap");
         Assert.Less(o.Max(v => v.magnitude) * step + 600f, UnitShowcase.RingRadius * 5000f, "the figures stay inside the ring");
+    }
+
+    /// <summary>Issue #644: the trio and its flag were laid out for camera yaw 0, so at yaw 90 and 270 the figures stood in a
+    /// column and from about yaw 180 the pole stood in front of them. At every yaw from 0 to 315 in 45 degree steps, on a 30 km
+    /// look at each army token: its figures' feet, seen along the camera's right (flattened), stand side by side, each gap at
+    /// least 0.9 of the token's gap at yaw 0; each figure faces the camera as it does at yaw 0; and the pole's foot is farther
+    /// from the camera than every figure's feet, so the pole is drawn behind them.</summary>
+    [Test]
+    public void TheTrioReadsSideBySideAndThePoleStandsBehindItAtEveryYaw()
+    {
+        var map = BuildMap();
+        try
+        {
+            var layer = UnitLayer.Create(map, Units, C.Hexes, still: true);
+            layer.Show(C, StateAt(new DateTime(1948, 5, 29), 5, 0.8));
+            var cam = Camera.main; Assert.IsNotNull(cam, "the default scene's camera");
+            var tokens = map.Terrain.transform.Find(UnitLayer.RootName).Find("Tokens").Cast<Transform>().Where(t => t.Find(UnitPlinth.PlinthName) != null).ToList();
+            var atZero = new Dictionary<string, (float[] gaps, float[] facing)>();
+            int judged = 0, poles = 0;
+            foreach (var yaw in new[] { 0f, 45f, 90f, 135f, 180f, 225f, 270f, 315f })
+                foreach (var t in tokens)
+                {
+                    cam.transform.rotation = Quaternion.Euler(CameraRig.Pitch, yaw, 0f);
+                    cam.transform.position = t.Find(UnitPlinth.PlinthName).position - cam.transform.forward * 30000f;
+                    layer.FaceCamera(cam);
+                    var right = cam.transform.right; right.y = 0f; right.Normalize();
+                    var away = cam.transform.forward; away.y = 0f; away.Normalize();
+                    var figures = t.Cast<Transform>().Where(x => x.name.StartsWith("Rifleman")).OrderBy(x => x.name).ToList();
+                    if (figures.Count < 2) continue;
+                    var across = figures.Select(f => Vector3.Dot(f.position, right)).OrderBy(v => v).ToList();
+                    var gaps = Enumerable.Range(1, across.Count - 1).Select(i => across[i] - across[i - 1]).ToArray();
+                    var facing = figures.Select(f => Vector3.SignedAngle(-away, Vector3.ProjectOnPlane(f.forward, Vector3.up), Vector3.up)).ToArray();
+                    if (yaw == 0f) atZero[t.name] = (gaps, facing);
+                    var zero = atZero[t.name];
+                    for (int i = 0; i < gaps.Length; i++)
+                        Assert.GreaterOrEqual(gaps[i], 0.9f * zero.gaps[i], $"yaw {yaw} {t.name}: neighbours {i} and {i + 1} stand side by side across the view, not in a column");
+                    for (int i = 0; i < facing.Length; i++)
+                        Assert.LessOrEqual(Mathf.Abs(Mathf.DeltaAngle(zero.facing[i], facing[i])), 1f, $"yaw {yaw} {t.name}/{figures[i].name}: faces the camera as at yaw 0");
+                    judged++;
+                    var flag = t.Find(UnitPlinth.FlagName); if (flag == null) continue;
+                    float pole = Vector3.Dot(flag.position, away), farthest = figures.Max(f => Vector3.Dot(f.position, away));
+                    Assert.Greater(pole, farthest, $"yaw {yaw} {t.name}: the pole's foot stands behind the figures, not in front ({pole - farthest:0} m)");
+                    poles++;
+                }
+            Debug.Log($"UNITS yaw: {judged} trios and {poles} poles judged over 8 yaws");
+            int trios = tokens.Count(t => t.Cast<Transform>().Count(x => x.name.StartsWith("Rifleman")) >= 2);
+            Assert.GreaterOrEqual(trios, 5, "the army tokens of 29 May 1948 with two or more figures (not a vacuous pass)");
+            Assert.AreEqual(8 * trios, judged, "every army token with two or more figures, at every yaw");
+            Assert.AreEqual(judged, poles, "each with its flag");
+        }
+        finally { UnityEngine.Object.DestroyImmediate(map.gameObject); }
+    }
+
+    /// <summary>Review of #644: the turn holds through what can stale it. A roster rebuilt while the camera already looks at
+    /// yaw 90 stands its new figures turned for that yaw, as before the rebuild (the yaw cache is cleared with the tokens). A
+    /// second camera (the scene view, a preview) rendering at another yaw turns no figure: only the game camera does. A pan
+    /// and a zoom at the same yaw move no figure.</summary>
+    [Test]
+    public void TheTurnHoldsThroughARebuildASecondCameraAndAPan()
+    {
+        var map = BuildMap();
+        var other = new GameObject("PreviewCamera").AddComponent<Camera>();
+        try
+        {
+            var layer = UnitLayer.Create(map, Units, C.Hexes, still: true);
+            var day = new DateTime(1948, 5, 29);
+            layer.Show(C, StateAt(day, 5, 0.8));
+            var cam = Camera.main; Assert.IsNotNull(cam, "the default scene's camera");
+            var tokensRoot = map.Terrain.transform.Find(UnitLayer.RootName).Find("Tokens");
+            Dictionary<string, Vector3> Figures() => tokensRoot.Cast<Transform>().SelectMany(t => t.Cast<Transform>().Where(x => x.name.StartsWith("Rifleman"))
+                .Select(x => (key: t.name + "/" + x.name, at: x.position))).ToDictionary(p => p.key, p => p.at);
+            void AssertStill(Dictionary<string, Vector3> want, string what)
+            {
+                var now = Figures();
+                Assert.AreEqual(want.Count, now.Count, $"{what}: the same figures");
+                foreach (var kv in want) Assert.Less((now[kv.Key] - kv.Value).magnitude, 1f, $"{what}: {kv.Key} stands where it stood at yaw 90");
+            }
+            cam.transform.rotation = Quaternion.Euler(CameraRig.Pitch, 90f, 0f);
+            cam.transform.position = tokensRoot.GetChild(0).position - cam.transform.forward * 30000f;
+            layer.FaceCamera(cam);
+            var at90 = Figures();
+            Assert.Greater(at90.Count, 10, "the figures of 29 May 1948 (not a vacuous pass)");
+            // A roster change and back, the camera still at yaw 90: Rebuild faces the new tokens to it.
+            var fewer = StateAt(day, 5, 0.3);
+            Assert.IsTrue(layer.Show(C, fewer), "the call-up changes the roster");
+            Assert.IsTrue(layer.Show(C, StateAt(day, 5, 0.8)), "and back");
+            AssertStill(at90, "rebuilt at yaw 90");
+            // A second camera at yaw 0 renders: the badges and flags face it, the figures stay turned for the game camera.
+            other.transform.SetPositionAndRotation(cam.transform.position, Quaternion.Euler(CameraRig.Pitch, 0f, 0f));
+            layer.FaceCamera(other);
+            AssertStill(at90, "after a second camera at yaw 0");
+            layer.FaceCamera(cam);
+            // A pan and a zoom at yaw 90.
+            cam.transform.position += cam.transform.right * 8000f; layer.FaceCamera(cam);
+            cam.transform.position += cam.transform.forward * 12000f; layer.FaceCamera(cam);
+            AssertStill(at90, "after a pan and a zoom");
+        }
+        finally { UnityEngine.Object.DestroyImmediate(other.gameObject); UnityEngine.Object.DestroyImmediate(map.gameObject); }
     }
 
     [Test]

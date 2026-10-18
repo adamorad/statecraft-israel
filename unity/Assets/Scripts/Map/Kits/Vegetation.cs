@@ -38,11 +38,19 @@ namespace Statecraft.Game.Map.Kits
                     }
                     break;
                 case TreeKind.Olive:
+                {
+                    // Visual gap L2 (issue #34; owner, 15 Oct 2026: "Darker, with pale sunlit tops"): dark olive-brown lobes whose
+                    // tops pale to OliveTop, to promo 03's crowns (KitTests.TheHillOliveCrownsAreDarkWithPaleSunlitTops). Issue #772: the
+                    // lobes' blue sits near their green (just above it on the biggest lobe) and OliveTop is greyer, because the grade
+                    // warms them: in the editor shot at gameplay03 they read grey olive (saturation 0.34, hue 27.5) like the promo's
+                    // (0.32, 28.2), not chocolate brown (0.41).
+                    var top = C(OliveTop.r, OliveTop.g, OliveTop.b);
                     km.Shaft(new Vector3(0, -0.6f, 0), new Vector3(0.15f, 1.7f, 0.1f), 0.32f, 0.22f, C(0.36f, 0.31f, 0.25f), 4);
-                    km.Crown(new Vector3(0.5f, 2.9f, 0.2f), new Vector3(2.0f, 1.5f, 1.9f), C(0.55f, 0.53f, 0.39f), ref rnd, 0.16f, 7, 4);
-                    km.Crown(new Vector3(-0.8f, 2.6f, -0.4f), new Vector3(1.6f, 1.3f, 1.5f), C(0.52f, 0.50f, 0.37f), ref rnd, 0.18f, 6, 4);
-                    km.Crown(new Vector3(-0.1f, 3.5f, 0.6f), new Vector3(1.3f, 1.0f, 1.3f), C(0.60f, 0.58f, 0.44f), ref rnd, 0.15f, 6, 3);
+                    km.Crown(new Vector3(0.5f, 2.9f, 0.2f), new Vector3(2.0f, 1.5f, 1.9f), C(0.28f, 0.255f, 0.26f), ref rnd, 0.16f, 7, 4, 0f, default, 0.35f, top, OliveTopFrom);
+                    km.Crown(new Vector3(-0.8f, 2.6f, -0.4f), new Vector3(1.6f, 1.3f, 1.5f), C(0.265f, 0.24f, 0.245f), ref rnd, 0.18f, 6, 4, 0f, default, 0.35f, top, OliveTopFrom);
+                    km.Crown(new Vector3(-0.1f, 3.5f, 0.6f), new Vector3(1.3f, 1.0f, 1.3f), C(0.30f, 0.275f, 0.275f), ref rnd, 0.15f, 6, 3, 0f, default, 0.35f, top, OliveTopFrom);
                     break;
+                }
                 case TreeKind.Palm:
                 {
                     var trunk = C(0.48f, 0.40f, 0.30f);
@@ -82,6 +90,10 @@ namespace Statecraft.Game.Map.Kits
         /// ground between the crowns and the instance count falls. CrownRadiusM, the mesh and every other tree are unchanged;
         /// the keep-outs (lots, routes, footprints, groves, grid marks) and the tree holes under units read the size.</summary>
         public const float HillOliveSize = 1.7f, HillOliveShare = 0.6f;
+        /// <summary>Visual gap L2 (issue #34): the olive crown's sunlit top colour, and the up component of the normal from which
+        /// a lobe starts to pale towards it (all of it at the lobe's peak).</summary>
+        public static readonly Color OliveTop = new Color(0.585f, 0.54f, 0.505f);
+        public const float OliveTopFrom = 0.5f;
         /// <summary>The widest crown (m) the grove index is asked about (its query reach past a grove's disc).</summary>
         const float ScatterKeepM = 1500f;
 
@@ -107,6 +119,24 @@ namespace Statecraft.Game.Map.Kits
             // Counts fall with the square of the tree scale (k = 1 at the default), so a larger tree covers the same ground
             // with fewer instances instead of burying the towns.
             float ks = s / KitScale.CountReference;
+            // Sea round 3 (#388): no citrus or olive crown on the beach's full sand (BeachBands; owner: "keep them off the
+            // sand"). Set only round the groves and olive cells near the sea: SeaDistance costs up to 48 height samples.
+            bool nearSand = false;
+            // The sand yields to every settlement's plot reach (option (c), owner 16 October 2026), as the bake's beach_keep.
+            var reaches = BeachBands.Reaches(settlements, ground);
+            // Sea within r (m) of (x, z): SeaDistance's sea test on its outer ring of 12 directions only (a quarter of its
+            // samples; the boot's trees phase rose 37 ms with all four rings), which finds a straight shore r away by
+            // r / cos 15 degrees.
+            bool SeaWithin(float x, float z, float r)
+            {
+                r *= 1.035f;
+                for (int i = 0; i < 12; i++)
+                {
+                    float px = x + Mathf.Cos(i * Mathf.PI / 6f) * r, pz = z + Mathf.Sin(i * Mathf.PI / 6f) * r;
+                    if (ground.Inside(px, pz) && Mathf.Abs(ground.ElevM(px, pz)) <= MapBuilder.SeaToleranceM + 0.5f) return true;
+                }
+                return false;
+            }
             void Add(TreeKind k, float x, float z, ref KitRandom rnd, float size = 1f, float yawDeg = float.NaN, float squash = 1f)
             {
                 // The tree's own numbers first, whether it stands or not: a tree left out for a lot or a route then never
@@ -117,7 +147,7 @@ namespace Statecraft.Game.Map.Kits
                 // grove rows through blocks).
                 // Nor into a railway's or road's corridor (the routes run through the groves otherwise).
                 float crown = CrownRadiusM(k) * s * size * 1.15f;
-                if (ground.OnLot(x, z, crown) || ground.OnRoute(new Vector2(x, z), crown)) return;
+                if (ground.OnLot(x, z, crown) || ground.OnRoute(new Vector2(x, z), crown) || nearSand && SeaWithin(x, z, BeachBands.FullSandAt(ground.Frame, x, z, reaches) + crown)) return;
                 float y = ground.Y(x, z);
                 float yaw = float.IsNaN(yawDeg) ? spin : yawDeg;
                 trees.Add((k, Matrix4x4.TRS(new Vector3(x, y, z), Quaternion.Euler(0, yaw, 0), new Vector3(scale, scale * stretch * squash, scale))));
@@ -147,7 +177,9 @@ namespace Statecraft.Game.Map.Kits
                     // Grove sizes grow with the square root of the tree scale, so a bigger tree means fewer, not only larger, rows.
                     float grow = Mathf.Sqrt(s / KitScale.CountReference);
                     float w = rnd.Range(1300f, 3000f) * grow, d = rnd.Range(900f, 2000f) * grow, step = 2f * GroveStepM * s;   // one 2 x 2 patch per step
-                    groveDiscs.Add((gc, 0.5f * Mathf.Sqrt(w * w + d * d) + CrownRadiusM(TreeKind.CitrusPatch) * s * 1.15f));   // to its edge rows' crowns
+                    float disc = 0.5f * Mathf.Sqrt(w * w + d * d) + CrownRadiusM(TreeKind.CitrusPatch) * s * 1.15f;   // to its edge rows' crowns
+                    groveDiscs.Add((gc, disc));
+                    nearSand = SeaWithin(gc.x, gc.y, BeachBands.MaxFullSandM + disc);
                     // A ragged block: each row stops at its own length, and some groves lose a corner (an L shape).
                     bool notch = rnd.Chance(0.3f); float nu = rnd.Range(0.1f, 0.3f) * w, nv = rnd.Range(0.1f, 0.3f) * d;
                     for (float v = -d / 2; v <= d / 2; v += step)
@@ -201,6 +233,7 @@ namespace Statecraft.Game.Map.Kits
                         float e = ground.ElevM(px, pz);
                         if (e < (plain ? 5f : 40f) || e > 950f || ground.Water(px, pz) || ground.InTown(px, pz, 0.9f) || ground.Slope(px, pz, 600f) > 0.35f) continue;
                         int n = rnd.Range(1, 4);
+                        nearSand = SeaWithin(px, pz, BeachBands.MaxFullSandM + 0.71f * cell + CrownRadiusM(TreeKind.Olive) * s * size * 1.15f);
                         for (int i = 0; i < n; i++)
                         {
                             float tx = px + rnd.Range(-0.5f, 0.5f) * cell, tz = pz + rnd.Range(-0.5f, 0.5f) * cell;
@@ -210,6 +243,7 @@ namespace Statecraft.Game.Map.Kits
                             if (!ground.Water(tx, tz) && !ground.InTown(tx, tz, 0.85f)) Add(TreeKind.Olive, tx, tz, ref rnd, size);
                         }
                     }
+                nearSand = false;
             }
 
             // The hills' loose scatter between the olive clumps (promo 03's hills, and the demo video at 23 s): single olives

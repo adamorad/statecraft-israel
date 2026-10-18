@@ -234,8 +234,11 @@ namespace Statecraft.Game.Map.Units
             (x, z) => map.Terrain.SampleHeight(new Vector3(x, 0, z)) + map.Terrain.transform.position.y;
 
         /// <summary>The height a figure standing at (x, z) on a base of <paramref name="radius"/> stands at: on the draped top
-        /// at its own point (round 4 of #559; an uphill boot sets into the base, which hides it).</summary>
-        public static float FigureY(MapScene map, float radius, float x, float z) => HeightAt(map)(x, z) + LipShare * radius;
+        /// at its own point (round 4 of #559; an uphill boot sets into the base, which hides it).
+        /// UnitLayer.FaceCamera calls it as the camera turns (issue #644), so it samples the ground itself: HeightAt builds a
+        /// new closure on every call.</summary>
+        public static float FigureY(MapScene map, float radius, float x, float z) =>
+            map.Terrain.SampleHeight(new Vector3(x, 0, z)) + map.Terrain.transform.position.y + LipShare * radius;
 
         /// <summary>Tests read the built meshes back: true keeps their CPU copy (players free it after the upload).</summary>
         internal static bool KeepMeshesReadable;
@@ -244,7 +247,8 @@ namespace Statecraft.Game.Map.Units
         public static Mesh Upload(Mesh m) { if (!KeepMeshesReadable) m.UploadMeshData(true); return m; }
 
         /// <summary>Builds the draped base, its lip and its ring, of radius <paramref name="radius"/> at
-        /// <paramref name="centre"/> under <paramref name="token"/>, and <paramref name="side"/>'s flag when it has one.
+        /// <paramref name="centre"/> under <paramref name="token"/>, and <paramref name="side"/>'s flag when it has one (the neutral
+        /// pennant when the map draws the side without one, <see cref="UnitFlags.HasPennant"/>).
         /// <paramref name="own"/> takes ownership of each per-token mesh; <paramref name="shared"/> returns the shared flag
         /// mesh for a key. Returns the base's top at its centre.</summary>
         public static float Build(MapScene map, Transform token, Vector3 centre, float radius, string side, Func<Mesh, Mesh> own,
@@ -258,16 +262,19 @@ namespace Statecraft.Game.Map.Units
             ring.transform.localScale = scale;
             var r = ring.GetComponent<MeshRenderer>();
             r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; r.receiveShadows = false;
-            if (UnitFlags.Has(side))
+            bool pennant = UnitFlags.HasPennant(side);
+            if (UnitFlags.Has(side) || pennant)
             {
                 float edge = FlagEdgeShare * radius;
                 float east = Mathf.Min(edge * 0.95f, Mathf.Max(FlagEastShare * radius, UnitBadge.SizeM / 2f + FlagClearOfBadgeM));
                 float north = Mathf.Sqrt(edge * edge - east * east);
                 var foot = new Vector3(centre.x + east, 0f, centre.z + north);
                 foot.y = FigureY(map, radius, foot.x, foot.z);
-                var flag = UnitShowcase.Piece(token, FlagName, shared("unit-flag-" + side, () => UnitFlags.Build(side)!), paint, foot, Quaternion.identity,
-                    UnitBadge.FigureHeightM * UnitShowcase.FigureScale);
-                flag.GetComponent<MeshRenderer>().sharedMaterials = new[] { paint, flagWhite, flagBlue };
+                var flag = pennant
+                    ? UnitShowcase.Piece(token, FlagName, shared("unit-pennant", UnitFlags.BuildPennant), paint, foot, Quaternion.identity, UnitBadge.FigureHeightM * UnitShowcase.FigureScale)
+                    : UnitShowcase.Piece(token, FlagName, shared("unit-flag-" + side, () => UnitFlags.Build(side)!), paint, foot, Quaternion.identity,
+                        UnitBadge.FigureHeightM * UnitShowcase.FigureScale);
+                if (!pennant) flag.GetComponent<MeshRenderer>().sharedMaterials = new[] { paint, flagWhite, flagBlue };
                 flag.AddComponent<UnitFlagFacing>();   // owner ruling, 2026-10-15: the cloth turns about the pole to face the camera
                 var cam = Camera.main; if (cam != null) UnitFlagFacing.Face(flag.transform, cam.transform.position);
             }

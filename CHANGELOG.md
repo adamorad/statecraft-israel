@@ -7,21 +7,391 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
 
 ## [Unreleased]
 
+### Added
+- The military unit record (GDD Phase 5 PR 2): a unit can hold a side, a strength and a standing order with its target,
+  each written into the state hash only when set, so a halutz hashes as before and no golden moves. `unit_types.yaml`
+  gains Israel's `veteran_soldier` (infantry), `artillery` and `armoured_car` (armour) with a `side` and a `class`; the
+  loader refuses a military type without both (R-UNIT-001, R-UNIT-002; refs #741, #385). Nothing uses them yet.
+- Objectives can complete on absorbing the immigrants: `completes_when: { absorbed: ... }` holds once the Jewish
+  population has reached a stated number and then the cities' overflow and employed shares are inside stated bounds
+  (R-OBJ-004; owner's option (a) on #738). The real objective and its card come with a person's source check, so no
+  content uses it yet and no golden moves (refs #738, #383).
+- Farm and village life from MATKOT's 1948 Collection: three tractors by kibbutz fields, three horse wagons and three
+  draught horses by moshav and moshava fields, three flocks of five sheep and three donkeys by villages, and three camels
+  by Bedouin camp areas, each anchor chosen by a fixed hash and kept clear of the kits, routes, unit tokens, water,
+  civilians (#666) and wildlife (#670), with the kit trees over them left out.
+  They stand at the #700 buildings' one world scale (24x real: a tractor about a third of the steam train's locomotive,
+  a sheep about a seventh), stream after the first frame, and play their idle clip only at close zoom (40 km) (#667).
+- MATKOT's Tegart fort, military barracks and factory models stand at their sourced places from their sourced days,
+  close up only (#700's switch): the Latrun police fort from 15 May 1948, the Tzrifin camp from 19 May 1948, Camp 80
+  from 13 July 1948 and Netanya's industrial zone from 28 July 1950, clear of the towns, routes, unit tokens, civilians
+  (#666) and wildlife (#670), with the kit trees on them left out. They are sized at the #700 buildings' one world
+  scale (24x real, an 8.5 m house as long as the steam train's locomotive), and stream after the first frame in a new
+  `collection-special-buildings` bundle with the shikun and the workshop, which stay unplaced until a place and date are
+  sourced (refs #707).
+- The craftsman and the job default (GDD Phase 3 PR 5; R-CRAFT-001, R-CRAFT-002, R-CITY-009; #736): a civilian trains
+  as a craftsman in a city with a completed industry project (3 turns, IL 0.5m a group), fills an ordinary job slot and
+  earns twice the job income, all labelled design values (Q-CRAFT-1 to Q-CRAFT-3). Each city's free jobs now fill on the
+  housing step at no Attention cost until an `AssignWorkers` order fixes that city's number (Q-JOBS-1). The reference
+  player stops sending `AssignWorkers`; only `scenario-mvp-absorb-first` moves (`,jobs=manual` on Tel Aviv).
+- Kiryat Shmona (founded 18 July 1949) and Beit Shemesh (15 December 1950, the National Library's December 1950
+  under the monthly turn) join the yishuv sites in `content/sites.yaml`, each with a field site in its hex; the
+  founding days are the owner's (#785), and the rows stay draft. The reference player builds them in id order, so
+  Mefalsim is built in March 1950 and the goldens move (refs #785, #782).
+- Event options in the GDD loop can move a city's housing condition: `city_effects` takes `field: condition` with a
+  change from -1 to 1, the condition stays from 0 to 1, and a sensitive event may only lower it (R-EFX-004, R-EFX-005;
+  refs #806). No event uses them yet.
+- Settings: a graphics quality choice, Automatic, High or Low (refs #40, second slice; owner decision of 18 Oct 2026).
+  Automatic is what the game did before: the tier the device gets, and on the web the frame-time fallback steps down
+  when frames are slow. High is the PC tier at render scale 1.0 and Low the Mobile tier at 0.8, both fixed, so the
+  fallback holds while one is set. It applies at once and is kept in `settings.txt` beside the blur option, never in the
+  sim or the save, so the goldens do not move. `?nofallback`, `?shot`, `?profile` and `?vprofile` (on the desktop
+  `-shot`, `-profile` and `-vprofile`) still get the tier's own look whatever is stored. The Mobile tier now ships in
+  desktop builds too (`QualitySettings`), so Low works there.
+- City projects in the GDD loop: `StartProject(kind, city, q, r)` builds permanent housing (IL 6m, 6 turns, +5
+  capacity, +0.03 condition), a transit camp (IL 1.5m, 1 turn, +5 capacity, -0.02 condition; needs the ma'abarot
+  policy) or industry (IL 2m, 6 turns, +5 job slots) on a land hex next to the city, paid at the start and borrowed if
+  short, at most 2 starts a turn; `CancelProject(id)` returns no Money. The kinds are labelled design values in the new
+  `content/projects.yaml` (Q-PROJ-1 to Q-PROJ-5, Q-HOUSE-3; R-PROJ-001 to R-PROJ-003; refs #735). The reference player
+  starts a housing project, one at a time, where the overflow is largest, so `hash1950`, `hash1952` and `mvp-end` move.
+- The game can be lost to the economy (GDD Phase 7 PR 5, D-B5; refs #8): Money is exhausted when the debt is at or above
+  `mvp.debt_ceiling` (IL 250m) and Food when the national stock is 0 (R-END-001); three turn ends in a row with both
+  (`mvp.defeat_turns`) end the game with `defeat_economy` (R-END-002). Both are labelled design values (Q-DEF-1, Q-DEF-2,
+  #784). The state counts the turns (`ExhaustedTurns`, hashed only when above 0, so no existing golden moves), and the
+  new `scenario-mvp-defeat` golden plays a run to the defeat. The war loss waits for Phase 5 (#749), and the defeat
+  texts for the owner (Q-DEF-4).
+- Release gate: consequence cards and variants need a person's sign-off (`reviewed_by`) before a build is shared;
+  `Statecraft.Cli --timeline-report` lists each road not taken and what follows it, and `Timeline.Entries` /
+  `Timeline.Origin` give the timeline screen its rows (R-ALT-011; refs #939, #953).
+- Map: MATKOT's Nubian ibex and striped hyena from The 1948 Collection, three of each, at close zoom (from 40 km in):
+  the ibex on level ledges of the Judean Desert west of the Dead Sea, the hyenas in the hills of Mount Carmel and the
+  central hill country, the ranges their sources give. Seeded, so the same spots every game; streamed after the first
+  frame (refs #670, #663).
+- Map: MATKOT's five civilian figures from The 1948 Collection stand in small seeded groups beside the cities, towns,
+  kibbutzim and the moshav (a townsman, a smith and a nurse), and an arriving man and woman beside each transit camp from
+  the day it is placed. They are scenery, never units; the static figures stream after the first frame and the animated
+  ones only at close zoom (refs #666, #663).
+- City projects can need a local resource: a `projects.yaml` kind's `requires:` names one, a `cities.yaml` city lists
+  its `resources:` with sources, and `StartProject` refuses the kind in a city without it (R-PROJ-005, D-D8; refs #737).
+  The loader refuses a resource without sources and a kind whose resource no city has. The winery (vineyards, Zikhron
+  Ya'akov, flagged `to_verify` by the owner on 18 Oct 2026) is not in `content/` yet: its rows wait for a person to
+  check the vineyards' source, so the goldens do not move.
+- Delegation reads a minister's loyalty (R-EVT-003): when an unanswered event goes to a minister rated below
+  `delegation_loyalty_floor` (5), only `disloyal_effect_share` (0.5) of each numeric effect of the option lands. Both
+  are labelled design values in `rules.yaml` `mvp:`. No minister in `people.yaml` is rated below 5 today, so the
+  goldens do not move (refs #107).
+
+### Changed
+- The Burma Road convoy truck and lorry stop on 7 December 1948, the approximate boundary when the Road of Valour
+  replaced the Burma Road for regular Jerusalem traffic; the Burma Road itself stays drawn (refs #1040, #1051).
+- MATKOT's whole-town models now stand on their towns far off, and the towns draw no procedural houses at any zoom
+  (refs #663, #917, #659; owner, 18 October 2026: "Whole model far, buildings near"). Each mapped town's model stands
+  on the town's core (where most of its building models stand, inside its kit footprint, clear of the next town and of
+  the sea, so Tel Aviv's no longer covers Jaffa and Haifa's stays out of the bay), as wide as that core, upright,
+  tilted to its ground (at most 10 degrees) and seated at its lowest point, so it never floats and a hillside no longer
+  cuts through it. Below about 40 km it gives way to
+  the single building models (#700), with the same hysteresis band. Mosques, churches, walls and ports keep the kit.
+  The 110 km view-distance switch and the "beside the town" spot are gone; a ma'abara or shikun still stands beside its
+  camp or housing project.
+- Money keeps both the calibrated per-head tax and city job income. Resolution step 7 now supports civilian-place upkeep (R-MONEY-002), with the owner-approved MVP rate of IL 0m a year for cities, permanent housing, industry, transit camps, military camps and Hakhsharot; military-unit upkeep remains Phase 5 (refs #884).
+- The population-tier badge on the twelve city and town pills keeps the values it shipped with, now owner-approved: tiers 1
+  to 9 doubling from 1,000 people, at every zoom, at the start of the name and mirrored in Hebrew (owner, 18 October 2026,
+  "Accept as shipped"). Rosh Pinna keeps tier 1 from its May 1948 figure of 350, which the data marks `wikipedia-only`
+  ("Keep tier 1 from 350"). Nothing changes in the game; EditMode tests pin both rulings (#710).
+- The 52 `owner_verify` flags on the 1948 localities are cleared (owner, 18 October 2026, "all defaults"), since #488
+  checked every row against the Village Statistics 1945 scan and #490 applied the corrections. No other field changes.
+  Open from #488, not touched here: the six split-or-merge rows, Dayr al-Qassi's landmark, 'Ilut. The localities are
+  outside the content hash, so no golden moves (#200).
+- MATKOT's road vehicles from The 1948 Collection stand on the 1948 roads up close: the intercity bus and the citrus
+  truck on the Tel Aviv–Haifa road, the sandwich-armoured convoy truck and the canvas-tilt lorry on the Burma Road from
+  14 June 1948. They stand only on ground Israel held on the game date, half as long as the steam train's locomotive,
+  and stream after the first frame (#725).
+
 ### Fixed
+- MATKOT's building models up close (#700) stand at one world scale, set by the steam train the map runs: a typical
+  8.5 m house is as long as the locomotive's car (about 204 m), so every model is 24x its building's real size
+  (`SettlementKits.ModelScale`), keeps its own proportions and no longer fills the kit's plot; a plot holds a small
+  grid of them instead (up to four a side), so the towns stay dense. In v0.1.1 they filled the
+  kits' symbolic 60x and 100x plots, so a house was about 800 m, a Tel Aviv block up to 1.6 km, both bigger than the
+  816 m train, and Jaffa's 100x houses rose to about 490 m in front of Tel Aviv's blocks (owner, 18 October 2026). The
+  kits far off keep their scale.
+- The sim tests no longer leave a temp folder behind for every `Fixture.Write` call (about 1,150 per run): the
+  folders share one root per run, deleted when the run ends (#1017).
+- Event city effects preserve the city's housing condition when changing its housing capacity or job slots (#1000).
+- The Cabinet's Hebrew "already holds" refusal uses the holder's office title, including the feminine form for a woman;
+  English is unchanged (#990).
+- On a phone held upright (390x844) the top bar's small text keeps the owner's 12 px floor too: the seven captions,
+  Security's level, the attention line and the plate's turn and date are 25 px in the panel, 12.3 px on screen (they
+  were 15 px, 7.4 px). The phone's bar is 32 px taller to hold them, a caption wraps between words, and Security's level
+  goes under its caption; the plate keeps its width when the month changes (#642). Smaller phones down to 375x667
+  keep the floor too (26 px at 360x800, 30 px at 375x667): there the bar grows to its rows' height and the panels
+  under it follow. On a phone held upright the decision card now starts right of the left rail and hangs under the bar instead of sitting centred, so no
+  rail button sits under it (Why? and Settings did), and the rail's buttons are 60 px, at least 24 px on screen.
+
+## [0.1.1] - 2026-10-18
+
+### Added
+- Pioneers can drain the Hula swamp: `PioneerWork(unit, dry_swamp, site)` at the new `hula` swamp site takes 12 turns
+  and IL 4m (labelled design values, Q-SWAMP-1), and once drained the Hula field site in its hex can be plowed
+  (refs #789; GDD Phase 4 PR 5, R-SWAMP-001). The `hula_drainage` card now has `site: hula`: in the GDD loop it fires only
+  while the player's works at the Hula are in progress (R-SWAMP-002, Q-SWAMP-2); its text, options and sources are
+  unchanged. The reference player drains no swamp, so the card no longer fires in its run and `hash1952` and `mvp-end`
+  move (docs/determinism.md). The loader refuses a swamp site that is also a field, yishuv or camp site.
+- Map: the army tokens wear MATKOT's figures from The 1948 Collection, streamed after the first frame (#665). Israeli
+  riflemen are the sabra pioneer, the young recruit and the veteran fighter by their headgear, with the pioneer
+  veteran as the third figure and the Palmach scout as Harel's. The 65 mm gun stands with the brigades given guns in
+  the 11 July 1948 distribution, and the Willys jeep with Harel (from 1 June 1948) and Negev (from 2 June 1948), each
+  from its sourced day. The Arab Legion and the Arab Liberation Army are drawn with their own figures under a neutral
+  pennant, only once those figures arrive; the other Arab forces stay data only. Until a model arrives, and if its
+  bundle is missing, the code-built Israeli figures stay. The pioneer veteran's model now stands at his walk's first
+  frame instead of a T-pose.
+
+### Fixed
+- The Unity golden checks play every golden in `sim/Statecraft.Sim.Tests/golden/manifest.txt` (`hash1950`, `hash1952`,
+  `smoke5`, `mvp-end` and each scenario), not only the 1950 and 1952 runs: one EditMode test and `GoldenCheck` (`-golden`,
+  `?golden`) read the manifest, the players ship it and the scenario files, and an unknown or failing golden is a
+  `GOLDEN FAIL` line. The lines now name the golden (`GOLDEN OK hash1950 <hash>`, was `GOLDEN OK 1950 <hash>`), and the
+  smoke and era-golden play code moved into `GoldenRun` so Unity plays the .NET runs (#394).
+- Jerusalem's symbolic Haram al-Sharif / Temple Mount runs north-south in its sourced proportions against the Old City's
+  east and south walls, Al-Aqsa stands across its south end, and the walls have the seven gates open before the 1948 war
+  on their real sides, the Golden Gate sealed: 7 gates, not one per road gap (13) (#319).
+- Under `?lang=he`, the Cabinet's candidate refusal reasons use Hebrew UI strings and Hebrew person, office, party and
+  date values instead of displaying the simulation's English prose; English is unchanged (refs #901, #564).
+- In the Hebrew UI the Cabinet and Defence screens name people, offices, parties, the government and the legislature in
+  Hebrew, from the content's sourced Hebrew forms (refs #558): "ממשלת ישראל הראשונה", "אליעזר קפלן", "שר האוצר", "מפא״י".
+  A woman's office takes its feminine title from the content (Golda Meir is "שרת העבודה"): every office in
+  `content/offices.yaml` with a Hebrew title now has a `title_he_f` (the loader rejects one without it), sourced and flagged `agent-checked` unless a
+  native speaker has read it (Labour, Foreign Affairs; #930), since the
+  player can order her into any office ("שרת האוצר", "השרה לנפגעי מלחמה", "שרה בלי תיק"; the Prime Minister stays
+  "ראש הממשלה"; Beri's wording as a native speaker). A card with no portrait shows the first name's initial and the surname
+  ("י. ידין"). A row with no Hebrew form yet keeps its English name (today only the Minister responsible for rationing).
+  English is unchanged.
+- Under `?lang=he` the Budget rows and vote line, and the event card's office line, use the content's Hebrew office,
+  holder and legislature names; a missing Hebrew name keeps its English form (refs #900, #558).
+- The map's towns are built from MATKOT's single building models up close (refs #659; owner rulings on #700, "Models up
+  close only", and 18 October 2026, "Whole model far, buildings near"): below about 40 km of zoom every house the town
+  kits place is one of the models, by town type, fitted to the plot the kit already laid out. Landmarks with no model
+  (mosques, churches, walls, harbours, Nahalal's public building) and Revivim's walled lookout keep the kit. From about
+  45 km out the towns are drawn as before. The layout and the town census do not change. The models load with the map
+  (never from `Resources/`) and draw with GPU instancing, each with three lighter levels of detail.
+
+## [0.1.0] - 2026-10-18
+
+### Added
+- Events: a consequence card's option can rejoin the record (`rejoin`, R-ALT-009; refs #951, #939). No content uses it yet.
+- Events: reconvergence events can bend their text to the player's course (`variants`, R-ALT-010; refs #952, #939).
+- Events: consequence cards (`kind: consequence`) for the roads not taken. They are soft, follow only a road
+  contemporaries proposed or debated (the Ferguson test), lie at most 2 cards deep, carry the sensitive tags of the road
+  they follow and take the first soft slots of a turn (R-ALT-005 to R-ALT-008, R-ALT-012; refs #950, #939). No content
+  uses them yet.
+- Event options in the GDD loop can grant units and change a city's housing capacity or job slots: `grant_units`
+  adds free units at the military camp or a named city, `city_effects` moves one field by whole units, both
+  apply after the numeric effects and show in the option's effect list, the loader refuses an unknown target, and a
+  sensitive event may carry no grant or gain (R-EFX-003 to R-EFX-006; refs #806). No event uses them yet.
+- Events: an option that did not happen can record who put it forward, when and on what source, or that it is a design
+  assumption (`alternative`, R-ALT-003; optional until #949; refs #947, #939).
+- Events: `requires` is a list whose entries must all hold, and an entry can say `diverged: true` (any option but
+  the historical one); the five events with a requirement move to the list form with the same meaning (R-ALT-001,
+  R-ALT-002; refs #946, #939).
+- The 1948 unit roster gives 20 formations a sourced Hebrew name (`name_he`, agent-checked until #564's read); a
+  name's source does not count toward `wikipedia_only` (refs #902).
+- Pioneers can build a training camp: `PioneerWork(unit, build_camp, site)` at a camp site takes 6 turns and IL 2m
+  (labelled design values the owner accepted; #813 may tune them), and once built its city can train there from the next
+  turn, with no capacity limit (refs #787; GDD Phase 4 PR 3, D-D5, R-CAMP-001; R-TRAIN-001 reworded). `sites.yaml` gains
+  the two camp sites the owner chose (Q-CAMP-2, #785), both military camps and draft rows: Camp 80 near Pardes Hanna for
+  Hadera, and Tzrifin for Rishon LeZion, the nearest of four cities one hex away by km (R-CAMP-002). The reference player builds them once every yishuv site is taken, so
+  `hash1950`, `hash1952` and `mvp-end` move (docs/determinism.md).
+- MATKOT's nine whole-town models from #507 stand as overview landmarks beside their towns (refs #663, #336, #885;
+  owner, 17 October 2026: "The nine whole-town models ship"). They are slimmed by `tools/slim_collection.py` into a
+  fourth streamed bundle, `collection-towns`, and drawn about 6 km across from a 110 km view distance, so from the
+  120 km starting view out to the overview (owner on #917: "Larger, from 120 km"); at the gameplay and close zooms the
+  per-building kits draw. Each stands on free ground clear of every kit, route and other landmark (`TownLandmarks`).
+  The towns follow #507's own mapping. The ma'abara stands by a transit camp only from 23 May 1950 (Davar, via
+  `maabarot_policy`), and the shikun by a housing project from 11 December 1949 (owner on #917: "Use 11 Dec 1949", a
+  single-source date; the exact first project is a gap), so from the 15 December 1949 turn.
+- Event options can now move the national Food stock: `food` is an effect target in whole units, the loader
+  validates it, and the sensitive-event no-gain rule covers it (R-EFX-001 and R-EFX-002; refs #729). The Arms
+  target follows with its pool (#781).
+- `Build.Web -decompressionFallback`: a WebGL build variant for GitHub Pages (Unity's Decompression Fallback; Pages
+  cannot set response headers). When a release carries the variant's zip, the site's deploy serves it at `/demo/`.
+
+### Fixed
+- MATKOT's nine whole-town landmarks stand upright (refs #663, #917; owner, 18 October 2026: the models "seem to be on
+  their side on the map"). Every Collection Far prefab's root carries the FBX axis conversion (-90 degrees about X),
+  and `TownLandmarks` set the rotation to the yaw alone, which overwrote it; the yaw now goes on top of the prefab's own
+  rotation, as `RouteTrain` already does.
+- The Sinai withdrawal card now records that a force remained west of Rafah after 2 January 1949 and describes its
+  alternative as refusing to pull that blocking force back, matching the IDF-published Michelson study and the owner's
+  source decision (refs #939).
+- The Provisional Government, State Council seat table and Yitzhak Gruenbaum row now record him with the General
+  Zionists, as the Knesset's faction record does, rather than as an independent (refs #457, #714).
+- Under `?lang=he` the hex info panel names its towns and 1948 localities in Hebrew: the title, the "Settlements"
+  line and the 1948 name in the localities line read the row's `name_he`, and the English name where a row has none
+  (13 of 271 localities). Where the Hebrew 1948 and today names are one word (48 rows that would otherwise show
+  a today name), the "today" part is left out. English is unchanged (refs #899).
+- In the Hebrew UI the info panel's build line is a date label with no verb, "{0} – תאריך הקמה: {1}" (refs #701), since
+  the fixed masculine "נבנה" read wrong for a feminine name ("מעברה נבנה"). Beri approved the wording as a native speaker.
+  English is unchanged.
+- Under `?lang=he` the info panel's queued and built lines name the map action in Hebrew ("ניתנה פקודה: מעברה, בסיום
+  התור", "מעברה – תאריך הקמה: אוגוסט 1950"), from #924's `info.map_action.*` strings, instead of the content's English
+  name. The built line no longer runs left to right or wraps "1950" in the panel. No new strings; English is unchanged
+  (Fixes #929).
+- `EventImageMappingTests.EveryPictureHasItsProvenanceRow` no longer lists `first_new_yishuv` as waiting for the owner's sign-off. Its `ASSETS.yaml` row became `verified` in #913 (owner, 17 Oct 2026, "Approve both", #879), so the test failed on main.
+- In the Hebrew UI the map's name pills show each row's `name_he`: the game settlements ("נהלל", "תל אביב") and
+  the 1948 localities that have one. The thirteen localities with no `name_he` keep their English name, and the
+  English UI is unchanged (#880).
+- End Turn now logs a throwing `Changed` or `TurnEnded` subscriber and continues notifying the remaining presenters,
+  so a successful turn cannot leave later UI or autosave handlers stale (#912).
+- The info panel now translates every map-action refusal from the sim's stable reason kind and invariant values. Under
+  Hebrew, the 1948 availability reason and its date are Hebrew; English, CLI diagnostics and simulation state are unchanged
+  (#881). The new Hebrew strings are flagged for native-speaker review (#564).
+- The 7th Brigade's card dates follow the IDF sources (owner, 17 October 2026): formed 14 May 1948, the day of the
+  founding order (was 16 May), and Operation Bin Nun ends on 31 May 1948 (was 1 June) (refs #902).
+- A WebGL `?firstcard` check now follows the normal first-card path: it closes the start screen through New Game,
+  leaves decision video enabled, records the event-photo load, and requires an interactive photo or portrait-fallback
+  card within a proposed 10-second budget (refs #909; budget needs maintainer sign-off).
+- The map legend is hidden while the decision card is open, so no card, the photograph's included, covers it at any
+  window, desktop or phone; it comes back when the card is hidden or answered (Fixes #849; the owner's decision of
+  17 October 2026, "Hide legend under card"). The card and its photograph keep their full size.
+- A boot download that receives nothing for 30 seconds is aborted and retried like a dropped connection (up to four
+  attempts), then shows the boot failure, instead of leaving the loading screen up forever. A slow download that keeps
+  receiving data is never cut off (#911).
+- The content loader now checks `name_he_review` on people rows the way it does for parties, governments,
+  legislatures, offices and settlements: the flag is `agent-checked` or left out, and only beside a `name_he`
+  (CONTENT_POLICY section 2, rule 6; #862). No people row carries the flag yet, so no row changes.
+- In the Hebrew UI the Budget's "no ministry until" date, the Why? screen's turn span and the info panel's build date
+  name their months in Hebrew ("מ־15 במאי 1948 עד 15 ביוני 1948", "באוגוסט 1950") through the `date.*` strings, as
+  the top bar does since #696 (refs #701). English is unchanged. `info.built` in Hebrew now says "ב{1}" instead of
+  "בשנת {1}", since its value is a month and a year.
+- The surf south of Jaffa no longer reads as evenly combed white lines (refs #716, #690). On the dune coasts the
+  breakers draw apart offshore, as a shoaling swell's do: 450 m apart at the shore, 1.5 km at the 3 km zone's edge
+  (`ScBreakerChirp` in `StatecraftMap.hlsl`). `coast_measure`'s stripe_rows for the south window falls from 0.47 to 0.25
+  (promo 03 0.30) on gameplay03 editor renders, with the foam band at 34.7 px (35.6 before) and 2 lace lines. The kurkar
+  coast is unchanged. `SeaTests.TheDuneCoastsSurfIsNotCombedIntoEvenLines` measures it.
+- The loading screen's boot-failure line wraps inside the screen with a side margin (refs #765). In Hebrew at phone width
+  it ran past both edges, so the player could not read "reload the page"; `.loading-line` had no `white-space: normal`.
+  `UiLayoutTests.TheBootFailureLineWrapsInsideTheScreen` checks English and Hebrew at 390x844, 960x600 and 1280x720.
 - Player builds work again (refs #680). Since #680 every `Build.*` failed with "no CRC for the bundle", because Unity
   reads a bundle's CRC from its `.manifest` and the collection's bundles were copied into StreamingAssets without them.
   The checks file is now written in the bundle cache and copied beside the shipped bundles.
 
 ### Changed
+- The web release build is gzip-compressed instead of Brotli, one zip for GitHub Releases and itch.io (owner decision on
+  #879): itch.io's CDN sends a Brotli build's `.data` uncompressed, an estimated 46 MB to download against about 34 MB
+  with gzip. `docs/RELEASING.md` step 5 and `tools/package_release.py` default to `unity/Builds/Web-gzip`.
+- Hebrew names: a native speaker read the 12 government and legislature names (#874) and 27 office rows, 29 titles (#876), and the start, new-game, save and loading UI strings (#877, no wording changed). The `agent-checked` flags on the names and titles were cleared; the 24 party names (#875) keep theirs (refs #564).
+- In the Hebrew UI the population-tier badge sits on the right of a map pill, at the start of the Hebrew
+  name, as the owner decided on #897 ("Yes, mirror it"; refs #880, #710). The English pill keeps it on the left.
+- Refusing the reparations claim (`reparations_claim.refuse`) now costs $4 million of Foreign currency, so neither answer is free (owner, 17 Oct 2026, "A cost for refusing too", #938). The amount is a labelled design value, not a historical figure, and waits for the owner's sign-off on the PR. The reference runs send the claim, so no golden moves.
+- Refusing Egypt's armistice (`armistice_egypt.hold_out`) now sets the war to rung 4, like refusing Jordan's, Lebanon's or Syria's (owner, 17 Oct 2026, "Yes, match the others", #937). The reference runs sign every armistice, so no golden moves.
+- The desktop players' bundle ID is `io.github.eyalgolan.statecraftisrael` (decision O6, owner, 17 Oct 2026, #879; refs #905). Only the Standalone identifier changes; the WebGL build does not read it.
+- The GDD game's cities house every arriving immigrant, with no hard cap, and each city has a housing condition from 0
+  to 1 (GDD Phase 3 PR 3, refs #734, #383; R-CITY-004, R-HOUSE-001 to R-HOUSE-004). People beyond a city's housing are
+  its overflow, still counted in the city; people in training and recruits take housing, halutz units do not. Each turn
+  a city with overflow loses 0.15 times its overflow share of its condition, from a start of 0.35 (design values in
+  `rules.yaml`, `mvp.housing_start_condition` and `mvp.overflow_condition_loss`). The national Housing level's base
+  is now the cities' people-weighted mean condition (R-HOUSE-004), with policy, map actions and events still on top, so
+  a shortage shows on the Housing meter and lowers morale. Every golden is re-pinned.
+- The 50 people names in Hebrew are flagged agent-checked until a native speaker reads them (owner, #882).
+- The 3D-model credits in code comments and one test's failure message now name MATKOT, as the owner asked on 17 October 2026; credit text only, with no behaviour change.
+- People audit batch 1 (#457): shazar's name_he now cites the Knesset's member page instead of en.wiki; the
+  batch's source-coverage findings (some MK pages - Kaplan, Pinkas - carry the birth year only, so those exact
+  birth dates keep their citations pending a JPress pass; the Zisling spelling conflict) are recorded in the PR. No values changed.
+- The MVP has four designated yishuv sites, where it had Mefalsim alone (refs #785, #384; Q-SITE-1, owner, #782):
+  Beit Kama (18 April 1949), Re'im (20 October 1949) and Gilat (4 December 1949) join it in `content/sites.yaml`, each
+  with a field site in its hex. A site now has kinds (`yishuv`, `field`, `swamp`, `military_camp`, `hakhshara`); an
+  action is accepted only at a site of its kind (R-SITE-004), and a hex holds at most one yishuv site (R-SITE-005). The
+  reference player builds the four in id order, so `hash1950`, `hash1952` and `mvp-end` move (docs/determinism.md).
+- Tel Aviv's White City is plastered a warm cream, as in promo 03, where it was a cooler lime white (refs #658). Walls,
+  parapets and roof terraces change in Tel Aviv only. Haifa's Hadar and every other town keep their colours, and Tel
+  Aviv stays clearly lighter than Jaffa's sandstone (`TownCensusTests.TelAvivsPlasterIsWarmCreamAndStillWhiterThanJaffa`).
+- The coalition can no longer end the GDD game (refs #730, R-GOV-001; D-C5, D-B5: "Coalition collapse is off in the
+  MVP"). Its stability still follows public approval and still weights the coalition votes; the legacy loop keeps its
+  collapse. R-GOV-002 pins what the GDD orders cost in Attention: each has a price, the unit orders are free, and a
+  refused order is refunded. No golden moves: no reference run's stability falls below 0.2.
+- Social cohesion is now the `morale` indicator, shown as "Social cohesion" (refs #728; GDD Phase 2 PR 4, D-C1).
+  The cities' employed share and `food_supply` feed it through the effects web beside homes and safety, so idle workers
+  and a Food shortage lower it (Q-NAT-2). "Low social cohesion" and "Low international support" are new situations,
+  on below 30% and off above 45%. Phase 1's separate cohesion value, its `coh=` hash line and its two weights are gone;
+  the top bar's meter reads `morale`. The new numbers are labelled design values. Every golden is re-pinned.
+- The Negev's sand is a warmer orange, toward promo 02 (refs #709, #695, #388; the owner chose this step on 16 October
+  2026): the desert ground colour has less blue (`MapPalette`), re-baked into `BiomeColours.bytes` and the minimap relief.
+  The #519 grade is unchanged.
+- The overview's sea is a deeper blue, toward promo 02 (refs #709, #695, #388): the water haze, seen only beyond 120 km,
+  is bluer (`MapShaderGlobals.WaterHazeColour`), so the gameplay zoom's sea does not change. The #519 grade is unchanged.
+- Nahalal, the map's moshav, is laid out as Kauffmann's ring (refs #32): a public building at the hub, across from the water
+  tower (plastered, a red tiled gable, longer than a farmstead), and its farmsteads turned with the long side along the
+  ring street instead of square to one grid. The basis is en.wiki "Nahalal": "the public buildings ... in the centre",
+  "then a ring street with the farmers' homesteads bordering on it on the outside". No other place moves.
+- A kibbutz no longer looks like a moshav or a moshava (refs #32). The five kibbutz game settlements and the kibbutz rows
+  of the 1948 localities get a dining hall near the heart, opposite the water tower (white, flat roof, a raised
+  clerestory), long one-storey members' houses under red tiles, and grey-roofed farm sheds on one side, the farm yard.
+  The plan follows Kauffmann's kibbutz layout: the dining hall at the centre, the farm kept apart from the houses
+  (he.wiki "גן הנוף הקיבוצי"). Nahalal's moshav ring and the moshavot are unchanged (their renders are pixel-identical),
+  and no other place moves; inside a kibbutz the hall's lot can take a plot. Yad Mordechai has no hall: no free ground is left near its heart, and a hall pushed to the edge
+  would take its houses.
+- The GDD game's immigrants arrive in all twelve cities (GDD Phase 3 PR 2, refs #733, #383; R-CITY-003, R-CITY-008),
+  split in proportion to each city's census population, one unit at a time to the largest remainder, ties to the lower
+  id (Q-ARRV-1). They used to land only in Tel Aviv. The cities take arrivals from the census day, 8 November 1948
+  (`mvp.city_arrivals_from`, CBS Statistical Abstract No. 14, Table 11), because their census start values already count
+  the people who came from 15 May: about 78 units were counted twice (Q-ARRV-3). The national head count still takes
+  every arrival from 15 May, so the CBS anchors are unchanged, and a test checks the cities never hold more people than
+  it (Q-ARRV-2). `mvp.arrivals_city` is gone. Every golden moves (docs/determinism.md, rebaseline history).
+- The GDD game has its twelve cities (GDD Phase 3 PR 1, refs #732, #383; R-CITY-006, R-CITY-007): `content/cities.yaml`
+  holds the `city` and `town` rows of the 1948 settlements, each starting from its census population of 8 November 1948
+  (CBS Statistical Abstract No. 14, Table 11; Zikhron Ya'akov from No. 3; Rosh Pinna from Hebrew Wikipedia, as the owner
+  accepted on #569), with the CBS working share where one exists and labelled design values for the gaps (Q-START-1).
+  Every value carries a status (sourced, derived, wikipedia-only or design) and the loader refuses a historical value
+  without its sources and date. People become units to the nearest 1,000, at least 1 for a town with people
+  (Q-START-2): 511 units in all. With 211 employed units paying job income, `spending_per_capita_per_year` is re-derived
+  from the same Michaely anchor (IL 98.4m of internal debt over 1950-51) with that income included: 0.0001036, was
+  0.000093 (owner, 16 October 2026, #821, option (a)); the run's 1950-51 debt rise is 98.7m. Every golden moves
+  (docs/determinism.md, rebaseline history).
+- The top bar's Money figure is labelled net: "Money (net)", "כסף (נטו)" in Hebrew, and its tooltip says the same (refs
+  #681; owner, 16 October 2026: "keep one top-bar figure and label it as net (cash minus debt)"). The value is unchanged,
+  cash minus debt; the Budget screen still shows money and debt separately.
+- The Oded (9th) Brigade row in `content/map/units_1948.yaml` records the #197 sourcing pass: Ben-Gurion's diary for
+  31 October 1948 has Tarshiha fall on 30 October and the 9th Brigade attack the villages between Tarshiha and Sa'sa',
+  and he.wiki dates its companies at al-Malkiyya (1 June 1948) and Tel Azaziyat (9-10 July 1948); en.wiki alone puts it
+  near Jerusalem (Malha and Ein Karim, July 1948; "headquartered in Jerusalem" has no footnote). No source names a
+  headquarters or a place held over a window, so the row stays hidden. Map data only: the content hash and the goldens
+  do not move.
+- Food is a national stock (refs #382, R-FOOD-001 to R-FOOD-003; maintainer, 16 October 2026, option (b)): the nation
+  eats its head count each month, a monthly import keeps three months of cover, and the stock stops at 0. Food supply
+  falls as the cover falls and further by any unmet share; rationing and events still act on top. The 1951 currency
+  crisis now cuts the Food imports instead of Food supply directly. `k_food` (0.1) and `cover_months` (3) are new design
+  values for the owner to set or accept. Every golden moves (a new `food=` line; the end of 1951 also moves Food supply
+  slightly); the content hash moves too, so an older save loads with the "different game content" warning.
+- The first-new-yishuv card's source comment records the #706 gazetteer findings for places under 1,000 near
+  Mefalsim (seven depopulated villages in the sweeps, none naming Mefalsim; the Bedouin-locality caveat), instead of
+  the stale not-checked note (#654). Comment only; the card's text is unchanged.
 - Sourcing audit of the MVP-window office rows (#457): the First Government row no longer cites Wikipedia (the
   Knesset's position records, the 14 May 1948 minutes, Ben-Gurion's diary page, the plenum records and the
   Knesset's history pages cover every value); the Provisional Government keeps its two named Wikipedia lines for
   the coalition, the State Council keeps one named Wikipedia line for the seat distribution, and the Third
   Government keeps its named he.wiki lines. No values changed.
+- The 1948 roads stop at the walls of Jerusalem's symbolic Old City instead of running inside them (refs #319). The map
+  cuts the Jaffa, Hebron, Nablus and Jericho roads at the 4 km square's wall line, where the walls leave each a gate;
+  the traced lines, which meet just outside the real walls by New Gate, are unchanged. The Jaffa–Jerusalem railway now
+  ends at the walls too (owner: "Cut it at the walls"); its station stands outside the real walls. The route ribbons are
+  re-baked.
+  Map only: no golden and no content hash moves.
 - The Treasury is now shown as Money, כסף in Hebrew, on the top bar, the Budget screen and in the causes (refs #382,
   R-MONEY-001; spec §1.2, owner, 15 October 2026, Q-MONEY-4 and Q-HUD-3). Debt and foreign currency stay in the sim
   (D-C3). No upkeep yet: per Q-MONEY-2 it waits for Phase 3. No golden moves; the content hash does (the name is in
   `content/model.yaml`), so an older save loads with the "different game content" warning.
+- The olive crowns are darker, with pale tops (visual gap L2, refs #34; owner, 15 October 2026: "Darker, with pale
+  sunlit tops"). At gameplay03 their body is luma 0.29 (main 0.50, promo 03 0.30) and their sunlit top stands 0.18 above
+  it (main 0.14, promo 0.18). Vertex colours only: no tree count, size, shader or grade change.
+- The olive crowns read grey olive, not chocolate brown (refs #772): their median saturation at gameplay03 (editor shot)
+  is 0.34 (main 0.41, promo 03 0.32) and their hue 27.5 degrees (main 31.7, promo 28.2), with more blue in the lobes
+  and a greyer sunlit top. Body luma 0.29 and top contrast 0.20 stay in promo 03's bands. Vertex colours only.
+- The surf is wide on the dune coasts and narrow under the kurkar, as promo 03 draws it (refs #690, #388): 3.0 km from
+  Jaffa south and in Haifa Bay, 1.5 km elsewhere (2.4 km everywhere before). The dune coasts are one definition,
+  `unity/Assets/Resources/Map/DuneCoasts.json`, which the water pass reads through `MapShaderGlobals`. Presentation only.
+- The surf reaches further out to sea (refs #690, #388): the breakers' zone widens from 1.8 to 2.4 km, so south of Jaffa
+  the white foam band reads 30.8 px at the gameplay zoom, inside promo 03's 25-55 px band (20.3 before; the promo reads
+  44), and the northern frontage reads 25.0 px (18.3 before), inside its 6-30 px band. Presentation only.
 - An event option's Treasury cost the Treasury cannot cover is now borrowed at once, like every other payment, with a cause
   naming the event (refs #681, R-MONEY-003). Before, the Treasury went below 0 until the deficit step, which reported the
   shortfall as "to cover the deficit". End-of-turn totals are unchanged and no golden moves. The top bar's Treasury is
@@ -29,6 +399,19 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
 - The unit figures' shirts are darker (0.9 of their paint), so the figures read darker than their earth base as demo2
   T29's do, 0.5-0.9 of its luma at the Harel and plain 30 km looks and at gameplay03 (refs #645, #197), pinned by
   `TheFiguresReadDarkerThanTheirBaseAsT29`. #559's shirt sample landed on the chest brace; the new test reads the shirt.
+- Map: an army token's figures and its flag's pole turn about the base's middle with the camera's yaw (refs #644, from
+  #559), so from every side the trio stands side by side facing the camera with the pole behind it; at yaw 90 or 270 the
+  figures stood in a column, and from about yaw 180 the pole stood in front of them. Presentation only.
+- The map shows sides from the game's start (refs #674; owner decision of 16 October 2026, "(b) 9 July lines, adjusted"):
+  from 15 May to 10 June 1948 the front lines of 9 July 1948 (Israel State Archives map 6158/1), with grey where the CIA's
+  "Military Situation - 18 May 1948" map draws a tenuously held border that closes (the Safad-Hula loop, traced); cut
+  by the 1947 sub-districts so that no new line is drawn, at Lajjun-Zir'in (taken 28 May) and along the Jerusalem
+  corridor (a CIA dashed border that closes on nothing sourced); only Yibna's hex (5 June) and Acre's (17/18 May) in the
+  Ramle and Acre sub-districts, so Rehovot, Rishon and Nahariya stay blue (owner ruling of 16 October 2026); the Gaza and Beersheba sub-districts without colour, their Jewish
+  settlements' hexes blue; Jerusalem no-man's land. The caption reads "Front lines of 9 July 1948, adjusted (Israel State
+  Archives; CIA map of 18 May 1948)", in English and Hebrew (the Hebrew waits for the native reviewer, #564). Before, the
+  grey 1947 sub-districts stood until 11 June. Map-only data (draft, owner-verify): the sim goldens and the content hash
+  do not move.
 - `bernadotte_assassination` says "about 250" Lehi members were arrested, not "about 200" (refs #516; owner, 15 October
   2026): Ben-Gurion told the Provisional State Council 246 (184 + 62), and S/1315 gives 266 by 23 September (184 + 82).
   Card text only: no golden moves, the content hash does, so an older save loads with the "different game content"
@@ -53,12 +436,89 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   (Q-CUT-8). Every golden moves; the cutover re-pins them once.
 
 ### Added
-- Tal's (@pixelrenderai-hash) 23 single-building Tripo models from #507, imported for the strategic map (refs #659, step
+- A halutz group becomes a veteran pioneer (`veteran_halutz`) after 6 turns of work, one yishuv's build, and a
+  veteran builds twice as fast: 2 turns of progress a turn (refs #790; GDD Phase 4 PR 6, D-D9, R-VET-001, R-VET-002).
+  Only turns whose project progressed count. Both numbers are labelled design values from the Phase 4 plan, which the
+  owner took on #782. A unit's service is hashed only when it is not 0. hash1950, hash1952 and mvp-end are re-pinned:
+  the reference player's halutz group becomes a veteran after Beit Kama and builds Gilat, Mefalsim and Re'im in 3 turns
+  each, so the first new yishuv completes on 1949-09-15 (was 1950-03-15), and by 1950 the score is 100 and the debt is
+  IL 2m higher. The 1952 score and debt do not change.
+- The GDD loop's event rules have IDs and tests (D-H1; GDD Phase 7 PR 1, refs #805): R-EVT-001 to R-EVT-005 in
+  `docs/rules/mvp.md`, as the owner decided Q-EVT-1 to Q-EVT-4 on 17 October 2026 (#784). Hard anchors always fire, at
+  most 3 soft events a turn in order of `from` then id, unanswered events are delegated, and no effect is delayed; no
+  behaviour changes and no golden moves. `EventSystem.OptionEffects` lists every effect of an option for the event card.
+- Halutzim can plow fields (refs #788, #384; D-D10, Q-FIELD-1 to Q-FIELD-3, owner, #782): `PioneerWork(unit, plow_fields,
+  site)` at a yishuv's field site, ready once that yishuv is built, takes 3 turns and IL 0.5m (R-FIELD-001). Each turn
+  after the cities' production, every plowed field adds 1 unit of Food to the national stock, with no workers
+  (R-FIELD-002). All three numbers are labelled design values in `rules.yaml`. The reference player plows the four
+  fields once the yishuv sites are taken, before the camps, so `hash1950`, `hash1952` and `mvp-end` move (docs/determinism.md).
+- City and town pills start with their population tier, a gold disc with a number from 1 to 9 (refs #710). The tier is
+  static: it comes from the city's 1948 people in `content/cities.yaml` (#821), not from the sim's live count (owner,
+  15 October 2026). The scale is the design value proposed on #710 and not yet ruled: tiers double from 1,000, so under
+  1,000 is tier 1 and 128,000 or more is tier 9, which gives eight distinct tiers across the twelve cities. Pills with no
+  1948 figure (Arab towns, kibbutzim, moshavim, the 1948 localities) have no badge. Hovering or tapping a badged pill
+  shows a tooltip such as "Population tier 8 of 9: 98,618 people in 1948", in English and Hebrew.
+  `MapLabelTests.CitiesWearTheirStatic1948PopulationTier` checks the tier edges, the badges and the tooltip.
+- Map: Revivim, the one Negev outpost on the map, is drawn as the walled lookout it was in 1943-48 (refs #32), not as a
+  moshava's red-roofed houses round a water tower. The three lookouts were built to one plan (he.wiki "שלושת המצפים"):
+  a square yard closed by a wall, a lookout tower in its corner, the living quarters along one side and the service
+  buildings along another. The larger living building is Revivim's kibbutz dining hall (he.wiki "רביבים": the fortress
+  held "חדר אוכל"). `SettlementKits.Outpost.cs`; `NegevOutpostKitTests`.
+- The Arab forces of 15 May and 11 June 1948 are in `content/map/units_1948.yaml` as data only (refs #740, #385,
+  #226): the Egyptian Expeditionary Force, the Arab Legion, the Syrian Army, the Iraqi Expeditionary Force, the Lebanese
+  Army (hidden: no place two sources agree on) and the Arab Liberation Army, each with its `side`, an `echelon` and one
+  sourced 15 May `strength` (Q-START-3), from `research_notes/GDD phase 5/arab-forces-1948.md`. The map does not draw
+  them: `UnitRoster.OnMap` keeps the roster and the placer to Israel's rows until Phase 5 PR 17's figures and their
+  sensitivity review (owner, 17 October 2026), so no token, spot or kit clearing changes. `UnitData` reads `strength`,
+  `echelon` and the sides `ala` and `local_arab_forces` (Q-START-4). At the first truce the Egyptian row stands at
+  both its forward base, Isdud, and its rear base, Majdal (owner, 17 October 2026, on #860). The rows are drafts.
+- The GDD loop's city and site panels (GDD Phase 1 PR 8, refs #381). On a city hex the info panel shows the housing
+  (`Cities.Housed`, R-HOUSE-003: civilians, recruits and groups in training) against capacity, the housing condition
+  (R-HOUSE-001), jobs, refugees waiting and recruits, and each training cohort with its turns left, with an Assign
+  stepper, Train recruits and Train halutzim (where `Training.HasFacility` says the city has the camp or Hakhshara, a built camp site
+  included) and Cancel. On the designated site's hex it shows
+  the site's state, Build with each idle pioneer group (halutz or veteran) at the rules' cost and that group's own turns,
+  and Stop while it is built. Every number is the sim's, and every order goes through the queue. The limits come from
+  new public sim helpers that the rules call too, so nothing is repeated in the UI: `Cities.MaxWorkers` (R-CITY-001),
+  `Training.Idle` and `Training.Available` (R-TRAIN-001, counting both tracks' and the Assign order in the queue),
+  `Projects.TurnsToBuild` (R-SITE-003, R-VET-002) and `Projects.IsYishuvSite`. They change no rule, so the goldens do not
+  move. A new `SiteLayer` draws a site being built as a timber scaffold and a built site as a rural kit on its hex.
+- A Settings screen, opened from a gear at the foot of the left column (refs #40, first slice). Its first option turns
+  the tilt-shift blur off and on, at once; the choice is kept per browser in `/idbfs/statecraft-settings/settings.txt`
+  (a fixed folder, as the autosave's), never in the sim or the save, so the goldens do not move. `?notiltshift` still
+  boots without the blur.
+- A scripted trailer capture from the real build (refs #45): `MapCapture.Trailer` renders the camera moves in
+  `TrailerShot.Default` (the whole country, down to the promo 03 ground and back up; 14 s from the existing promo
+  poses) at 1920 x 1080 and 60 fps on the desktop tier, as PNG frames with the water's clock pinned per frame, the units
+  of turn 1 of a game started with `-seed`, and a `trailer.txt` recording the commit, seed and settings.
+  `docs/RELEASING.md` "Capturing trailer footage" gives the command and the ffmpeg line. Map only (no UI, no sound);
+  the draft cut is still to come.
+- The info panel of Tiberias' hex adds "Tiberias is shown here because its own hex is water." (Hebrew too, with the
+  town's Hebrew name), so the hillside hex's
+  70 m does not read as the town's (refs #204). It is worked out in Unity from the town's own lon/lat and the hex grid
+  (`InfoPanelPresenter.TownHex`), with no new `content/map/` field; an ordinary hex shows no such line.
+- A steam train runs on the Jaffa–Jerusalem railway in normal play from 2 March 1950, the date regular service resumed
+  (refs #668, #35; maintainer decision on #35, 16 October 2026). It runs from Lod to Jerusalem, sourced in
+  `content/map/routes_1948.yaml` (Israel Railways, 1998), with the date awaiting the human check. Tel Aviv South to Lod
+  is in the content too. It rests on Wikipedia alone, so it runs only once a person signs it off.
+  The model is MATKOT's locomotive and tender from The 1948 Collection. It leads three of the
+  showcase's coaches, four articulated cars that ride the track (owner, 16 October 2026: "ride the track, cut walls"):
+  on the Sorek valley's tightest bends their sides pass into the gorge walls. It streams only once the game date reaches
+  the service, never at boot. If it does not stream, the game plays on without it and logs one warning.
+- Social cohesion on the top bar, a resource meter (לכידות חברתית in Hebrew) with its change since last turn, in the GDD
+  loop only; it reads `GameState.Cohesion` (R-CITY-005; the owner's ruling of 15 October 2026, refs #380). The
+  objective card's line under its text, completed early (both dates and the months), on time or later, in English and
+  Hebrew (`Objectives.MonthsFromHistory`; the owner's wording on #379), and its photograph of Mefalsim's first days
+  (Boris Carmi, June 1949, CC BY 4.0, Meitar Collection; `ASSETS.yaml` row `owner-verify`). With seven meters
+  the bar re-tiers (the owner's "tighten and re-tier", 16 October 2026): each meter's sides are 6 px narrower; 16:9 at
+  1920x1080 keeps the one-row bar, while 16:10, 4:3, 1280x720 and 1366x768 take the stacked bar, 5:4 drops the icons, a
+  square window takes two rows, and a phone's meters wrap to two lines. No golden moves.
+- MATKOT's 23 single-building Tripo models from #507, imported for the strategic map (refs #659, step
   1): `unity/Assets/Art/Settlements/Prototype/Models/b*`, outside every `Resources/` folder, meshes compressed with no
   animation, rig, tangents or Read/Write, colour maps committed and crunched at 512 px; `BuildingModelImportTests` pins
-  these settings. The texture paths from Tal's machine inside each FBX are blanked. Nothing references the models yet,
+  these settings. The texture paths from the author's machine inside each FBX are blanked. Nothing references the models yet,
   so the game does not change and the WebGL build ships the same assets (its `.data` file differs by 56 bytes).
-- The 1948 Collection's 31 non-building models by Tal (@pixelrenderai-hash, from #507), streamed after the first frame
+- The 1948 Collection's 31 non-building models by MATKOT (from #507), streamed after the first frame
   (refs #664, #663): 12 people, 13 vehicles, ships and aircraft and 6 animals in `unity/Assets/Art/Collection/`, slimmed
   by `tools/slim_collection.py` (owner, 15 October 2026: "Plain git, slimmed first"): a far mesh of at most 1,500
   triangles (4,500 for vehicles) and a near mesh of at most 8,000 per model, the idle clip kept on the 13 models that have one, colour maps
@@ -498,6 +958,16 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   much of the hills, with fewer instances. The olive clumps now keep off the hex-edge midpoints as the scatter does
   (owner: "Yes, add the guard now"). The scrub, the plain's and the valleys' olives, the mesh, the colours and the
   cypress rows are unchanged.
+- Sea round 3, a wide beach on the dune coasts (refs #388; owner, 15 October 2026: geographic, through the coast map,
+  about 2.5-3 km, trees kept off the sand): from Jaffa south and along Haifa Bay the sand reaches about 2.7 km inland, as
+  promo 03 draws it south of Jaffa; from Tel Aviv north, under the kurkar, it stays 900 m. `tools/terrain_bake.py` bakes
+  the extra width into `coast.png`'s land side past the wet sand, so no shader changes; the water side is unchanged. Citrus
+  groves and olives keep their crowns off the beach's full sand (`BeachBands`, the bake's C# twin). Each settlement's own
+  lots and fields stay off the sand (owner, 16 October 2026, option (c)): the extra width yields to every game settlement's
+  and 1948 locality's plot reach, where the beach stays 900 m, and comes back over 1 km beyond it. Haifa Bay's band ends
+  at the Na'aman's mouth, so Acre, a cape of the bay and not dune country, keeps the 900 m beach. Bedouin camp tents
+  keep off the dune coasts' extra sand, so one encampment in the Jaffa subdistrict is no longer placed: the map draws 64
+  camps and 174 tents, against 65 and 176 before.
 - The map's region files (the 1948 sub-districts, the 1949 armistice lines, the 1948-49 control areas) are read
   from baked runtime forms at boot instead of being parsed as YAML (`tools/regions_bake.py`, refs #321), as the
   localities and the route paths are. The sub-districts are read once, for the camps and the region layers. A stale,
@@ -683,6 +1153,13 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   It decodes to the same bytes, so the terrain is unchanged (#44).
 
 ### Fixed
+- A save that loads with warnings (made with other game content; then a replay that differs) says each warning in the
+  player's language (refs #637): `GameSession.Load` returns the kind (`content_changed`, `replay_differs`) instead of
+  English text, the UI shows `save.warning.<kind>` from both strings files, and the kind goes to the log. A boot failure
+  no longer shows the exception's English text either: the loading line gives the short reason `boot.reason_other`, and
+  the full reason stays in the log. The Hebrew waits for the native reviewer (#564). No golden moves.
+- In the Hebrew UI the top bar's date plate shows the date in Hebrew, "15 במאי 1948", through the same `date.*` strings
+  as the map's front-line date (refs #687). Before, it read "15 May 1948". English is unchanged.
 - Map labels (refs #599): close over Jaffa's harbour the "Tel Aviv" and "Jaffa" pills no longer read swapped. Every pill
   is now nearer its own settlement's marker than any other visible marker (by more than 4 px), in every placing pass,
   since two sprawling kits' screen rectangles overlap and a spot against one's edge could sit by the other town. A city
@@ -730,9 +1207,22 @@ adds a line under **Unreleased**; CI's `Changelog` job checks this (see `CONTRIB
   Cabinet's "Ordered:" line wraps, and on short windows the Prime Minister's portrait gives way, framed again for its new
   height, so the candidate list keeps two rows; at 32:9 the list's floor follows the room left (M7). Presentation only:
   no golden moves.
+- The selected Cabinet seat carries a "Selected" tag across the foot of its card's plate (Hebrew "מסומן"), so it stands
+  out without its colour, also once keyboard focus moves to another card; the fill and rim alone differed by 1.2:1 and
+  2.4:1 (accessibility audit M6, refs #41). The tag sits over the plate, so no card moves. An office the Prime Minister
+  holds himself, a button under his card, doubles its rim when selected instead. Presentation only: no golden moves.
 - Keyboard focus that lands on something scrolled out of view, such as a Cabinet card below the first row or a
   candidate far down the list, now scrolls its list to it (accessibility audit H1, refs #41). Focus that follows a mouse
   press leaves the list where it is. Presentation only: no golden moves.
+- The Cabinet's party chips say which side each party is on, not only by the swatch's blue or grey: they sit in two
+  groups headed "Coalition" and "Opposition", קואליציה and אופוזיציה in Hebrew (accessibility audit M5, refs #41). The
+  Hebrew waits for the native reviewer (#564). The chips also follow a coalition change in the middle of a government
+  (`coalition_changes`, such as 25 May 1953), where before they kept their old colours. Presentation only: no golden
+  moves.
+- PageUp, PageDown, Home and End scroll the open screen, such as a long Why list or the Defence screen, or the open
+  decision card's text when it runs long; those panels hold only text, so Tab never reached into them and the arrows
+  pan the map (accessibility audit H3, refs #41). With the focus in another list on the screen, such as the Cabinet's
+  candidates, the keys scroll that list. The arrows still pan the map. Presentation only: no golden moves.
 - Wheel zoom in the web build: one small wheel delta, such as a touchpad's half pixel, made every later frame zoom 27%,
   since Unity's player takes the smallest delta it has seen as one notch. The camera now counts the browser's wheel
   events itself (`WheelInput.jslib`): a touchpad's small pixel deltas zoom by how far the fingers move (100 px to a

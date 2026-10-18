@@ -120,31 +120,39 @@ public class UnitPlinthTests
 
     // ---- The flag matches the side --------------------------------------------------------------------------------
 
-    /// <summary>Every row of the unit file names its side, and every formation in it is Israel's (the file is the IDF's
-    /// 1948 order of battle); only Israel has a flag (built from the 1948 specification), so no flag is invented.</summary>
+    /// <summary>Every row of the unit file names its side, and every formation the map draws is Israel's or a force with a
+    /// Collection figure (the other Arab forces' rows are data only; owner, 17 October 2026, #740; issue #665); only Israel
+    /// has a flag (built from the 1948 specification), so no flag is invented: a drawn force with none flies the neutral
+    /// pennant (Q-ART-1, owner, 15 October 2026), in neither side's colours and not white, and no other side flies anything.</summary>
     [Test]
     public void TheFlagIsTheSidesAndOnlyASourcedFlagIsDrawn()
     {
         var units = UnitData.Parse(CommittedYaml);
-        Assert.IsTrue(units.All(u => u.Side == UnitData.Israel), "every 1948 formation in the file is Israel's");
+        Assert.IsTrue(units.Where(UnitRoster.OnMap).All(u => u.Side == UnitData.Israel || UnitFigures.SideFigure(u.Side) != null),
+            "every formation the map draws is Israel's or has its own figure");
         Assert.IsTrue(UnitFlags.Has(UnitData.Israel));
+        Assert.IsFalse(UnitFlags.HasPennant(UnitData.Israel));
         foreach (var side in UnitData.Sides.Where(s => s != UnitData.Israel))
         {
             Assert.IsFalse(UnitFlags.Has(side), $"{side}: no sourced, licensed flag in the repo, so none");
             Assert.IsNull(UnitFlags.Build(side), side);
+            Assert.AreEqual(UnitFigures.SideFigure(side) != null, UnitFlags.HasPennant(side), $"{side}: the pennant only on a drawn force");
         }
+        var pennant = UnitFlags.BuildPennant();
+        var slots = pennant.uv.Select(u => Enumerable.Range(0, UnitPalette.Count).Single(s => Mathf.Abs(u.x - UnitPalette.U(s)) < 1e-4f)).Distinct();
+        CollectionAssert.AreEquivalent(new[] { UnitPalette.RifleWood, UnitPalette.HullGrey }, slots, "a wooden pole and a plain grey cloth");
 
-        // An Arab side's token (as #226 will add): the same plinth and rim, and no flag.
+        // An Arab side's row draws nothing: no IDF figures, no placeholder (owner, 17 October 2026, #740). The file with
+        // every Israeli row relabelled Egypt's (each given an echelon and a strength, as such a row needs) draws no token.
         var map = BuildMap();
         try
         {
-            var egypt = UnitData.Parse(CommittedYaml.Replace("side: israel", "side: egypt"));
+            var egypt = UnitData.Parse(CommittedYaml.Replace("side: israel", "side: egypt\n  echelon: brigade\n  strength: {value: 1, as_of: '1948-05-15', sources: [{url: 'https://x.org', checked: '2026-10-11'}]}"));
+            Assert.Greater(egypt.Count(u => u.Side == "egypt" && u.Service == UnitData.Army), 3);
             var layer = UnitLayer.Create(map, egypt, C.Hexes, still: true);
             layer.Show(C, StateAt(Dates[0]));
-            var tokens = map.Terrain.transform.Find(UnitLayer.RootName).Find("Tokens");
-            var army = layer.Tokens.Where(p => p.Token.Unit.Service == UnitData.Army).ToList();
-            Assert.Greater(army.Count, 3);
-            foreach (var p in army) AssertPlinth(map, tokens.Find(p.Token.Unit.Id), "egypt", p.Token.Unit.Id);
+            Assert.IsEmpty(layer.Tokens, "a row that is not Israel's is not drawn");
+            Assert.AreEqual(0, map.Terrain.transform.Find(UnitLayer.RootName).Find("Tokens").childCount);
         }
         finally { UnityEngine.Object.DestroyImmediate(map.gameObject); }
     }
@@ -804,7 +812,8 @@ public class UnitPlinthTests
 
     /// <summary>Owner ruling (2026-10-15): "billboard the flag". At gameplay03 and at a 30 km look at Harel at camera yaw 0,
     /// 90 and 180, each flag turns about its pole as the camera renders: the cloth's normal points at the camera, seen from
-    /// above, within 2 degrees; the pole stays upright (the flag's up is the world's); its foot does not move.</summary>
+    /// above, within 2 degrees; the pole stays upright (the flag's up is the world's); its foot stays on the base's edge (an
+    /// in-play token's pole goes round the base with the camera's yaw, so it stands behind the figures: issue #644).</summary>
     [Test]
     public void TheFlagTurnsAboutItsPoleToFaceTheCamera()
     {
@@ -818,7 +827,8 @@ public class UnitPlinthTests
             layer.Show(C, StateAt(Dates[0]));
             var flags = map.Terrain.transform.Find(UnitLayer.RootName).Find("Tokens").Cast<Transform>().Select(t => t.Find(UnitPlinth.FlagName)).Where(f => f != null).ToList();
             flags.Add(UnitShowcase.Spawn(map, still: true).transform.Find(UnitPlinth.FlagName));
-            var feet = flags.Select(f => f.position).ToList();
+            float Edge(Transform f) { var c = f.parent.Find(UnitPlinth.PlinthName).position; return new Vector2(f.position.x - c.x, f.position.z - c.z).magnitude; }
+            var edges = flags.Select(Edge).ToList();
             var (hlon, hlat) = map.Frame.ToLonLat(flags[0].position);
             int n = 0;
             foreach (var yaw in new[] { 0f, 90f, 180f })
@@ -835,7 +845,7 @@ public class UnitPlinthTests
                         Assert.That(Mathf.Min(angle, 180f - angle), Is.LessThanOrEqualTo(2f), $"yaw {yaw} {f.parent.name}: the cloth faces the camera");
                         Assert.Less(angle, 90f, $"yaw {yaw} {f.parent.name}: its front, not its back, so the cloth flies to the camera's right");
                         Assert.Greater(Vector3.Dot(f.up, Vector3.up), 0.9999f, $"yaw {yaw} {f.parent.name}: the pole stays upright");
-                        Assert.Less((f.position - feet[i]).magnitude, 0.01f, $"{f.parent.name}: the pole's foot stays put");
+                        Assert.AreEqual(edges[i], Edge(f), 0.5f, $"{f.parent.name}: the pole's foot stays on the base's edge");
                         n++;
                     }
                 }

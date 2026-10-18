@@ -1,7 +1,8 @@
 # UI strings (Hebrew, #12). GameRoot loads them in place of strings.en.yaml only when Hebrew is asked for by hand
 # ("?lang=he" on the web, "-lang he" on the desktop; UiLanguage, #193); there is no visible switch yet.
 # Keep logical Hebrew order, never reverse strings. Exact string.Format tokens match strings.en.yaml;
-# dates, money, names and content still arrive from the current English content/PlayerText paths.
+# money, names, content and most dates still arrive from the current English content/PlayerText paths; the map's line
+# date, the top bar's date and the Budget, Why? and info panel dates come from the date.* strings (#687, #701).
 hud.turn: "תור {0}"
 hud.date: "{0}"
 hud.attention: "תשומת לב {0:0.0} מתוך {1:0.0}"
@@ -16,17 +17,20 @@ hud.say_million: "{0}{1} מיליון"
 hud.say_point: "{0:0} נקודה"
 hud.say_points: "{0:0} נקודות"
 # hud.caption.treasury: Money (R-MONEY-001, Q-MONEY-4); the owner's Hebrew word for it, כסף (Q-HUD-3, 15 October 2026, #375).
-hud.caption.treasury: "כסף"
+hud.caption.treasury: "כסף (נטו)"
 hud.caption.immigration: "עלייה"
 hud.caption.security: "ביטחון"
 hud.caption.support: "תמיכה ציבורית"
 # hud.caption.standing: International support (#622 decision 3); the owner's Hebrew word for it (Q-HUD-3, 15 October 2026, #375).
 hud.caption.standing: "תמיכה בינלאומית"
 hud.caption.fx: "מטבע חוץ"
+# hud.caption.cohesion: Social cohesion; the GDD's Hebrew, kept by the owner (Q-HUD-3, 15 October 2026, #375; #380).
+hud.caption.cohesion: "לכידות חברתית"
 hud.nav.cabinet: "ממשלה"
 hud.nav.budget: "תקציב"
 hud.nav.defence: "ביטחון"
 hud.nav.why: "למה?"
+hud.nav.settings: "הגדרות"
 hud.new_game: "משחק חדש"
 hud.end_turn: "סיום התור"
 budget.title: "תקציב"
@@ -36,6 +40,17 @@ defence.title: "ביטחון"
 defence.lower: "הורדת הדרגה"
 defence.raise: "העלאת הדרגה"
 why.title: "למה זה קרה?"
+# The Settings screen (#40). "On" / "Off" as a switch's state, not a command. For the native reviewer (#564).
+settings.title: "הגדרות"
+settings.tiltshift: "טשטוש בחלק העליון ובחלק התחתון של המפה"
+settings.on: "מופעל"
+settings.off: "כבוי"
+# The graphics quality choice (#40). Adjectives in the feminine, agreeing with "איכות". Approved by Beri, a native
+# speaker, on #40 (17 Oct 2026). For the native reviewer (#564).
+settings.quality: "איכות גרפית"
+settings.quality.auto: "אוטומטית"
+settings.quality.high: "גבוהה"
+settings.quality.low: "נמוכה"
 event.draft: "טיוטה"
 start.source: "מתוך ההכרזה על הקמת מדינת ישראל (עיתון רשמי מס׳ 1, 14 במאי 1948) ותרגומה הרשמי לאנגלית. הציור נוצר בבינה מלאכותית."
 # The recordist's name as the Israel State Archives spells it in its own description of item
@@ -53,6 +68,12 @@ event.reopen: "החלטה ממתינה"
 event.illustration: "איור"
 event.photo: "תצלום"
 event.ai_label: "איור שנוצר בבינה מלאכותית"
+# The objective card's line (#380; the owner's wording, #379): early, on time, later.
+event.objective_early: "הושלם ב־{0}; בהיסטוריה ב־{1}; מוקדם ב־{2} חודשים."
+event.objective_early_one: "הושלם ב־{0}; בהיסטוריה ב־{1}; מוקדם בחודש אחד."
+event.objective_on_time: "הושלם בזמן, כמו בהיסטוריה."
+event.objective_late: "הושלם באיחור של {0} חודשים לעומת ההיסטוריה."
+event.objective_late_one: "הושלם באיחור של חודש אחד לעומת ההיסטוריה."
 start.listen: "השמעת ההקלטה"
 start.stop: "עצירת ההקלטה"
 start.loading: "טוען את ההקלטה…"
@@ -77,6 +98,8 @@ order.kind.cohort: "מחזור הכשרה"
 order.kind.unit: "יחידה"
 order.kind.pioneer_work: "עבודה חלוצית"
 order.kind.site: "אתר"
+# A city project (#735; Q-UI-2's approved "מיזם דיור" for housing, with עירוני for any kind). For the native reviewer (#564).
+order.kind.city_project: "מיזם עירוני"
 order.invalid: "הפקודה אינה תקפה"
 # order.failed: the turn failed and SimBridge.EndTurn cleared the queue, so the player gives the orders again (#622;
 # maintainer, 15 October 2026). For the native reviewer (#564).
@@ -142,6 +165,11 @@ cabinet.opposition: "אופוזיציה: {0} {1}"
 cabinet.majority: "רוב: {0} {1}"
 cabinet.largest: "המפלגה הגדולה: {0}, {1} {2}"
 cabinet.party_seats: "{0} {1}"
+# The headings of the two groups of party chips under the half circle (CabinetPresenter.RenderHouse), so a chip's
+# side is read, not only seen in its swatch's colour (#41 M5). The same nouns as cabinet.coalition and
+# cabinet.opposition, with no adjective to agree. For the native reviewer (#564).
+cabinet.coalition_group: "קואליציה"
+cabinet.opposition_group: "אופוזיציה"
 cabinet.unrecorded: "לא תועד"
 cabinet.members_unit: "חברים"
 cabinet.seats: "מנדטים"
@@ -152,6 +180,9 @@ card.loyalty: "נאמנות"
 card.party: "מפלגה: {0}"
 card.appointed_name: "{0} (מינוי שלך)"
 card.offices_separator: " · "
+# The tag on the selected Cabinet seat's card (PersonCard; #41 M6). Not "נבחר": on a minister's card in a game about the
+# Knesset it reads as "elected". "מסומן" agrees with the card (כרטיס), masculine. For the native reviewer (#564).
+card.selected: "מסומן"
 info.hint: "יש ללחוץ על המפה כדי לבדוק משושה"
 info.off_map: "מחוץ למפה"
 info.hex: "{0} · גובה {1:N0} מ׳"
@@ -166,6 +197,7 @@ map.layer_front_note: "{0} (וגם {1})"
 map.legend_held: "בשליטת ישראל: כחול · בשליטת כוחות ערביים: כתום-אדום · שטח שבמחלוקת או שטח הפקר: אפור, מקווקו"
 map.legend_armistice: "הצד הישראלי של קו שביתת הנשק: כחול · הצד הערבי: כתום-אדום · שטח הפקר או אזור מפורז: אפור, מקווקו"
 map.caption_held: "קווי החזית, {0}, בקירוב (ארכיון המדינה)"
+map.caption_adjusted: "קווי החזית של {0}, מותאמים (ארכיון המדינה; מפת ה-CIA מ-18 במאי 1948)"
 map.caption_mixed: "קווי שביתת הנשק: {0}; במקומות אחרים קווי החזית של {1}"
 map.front_egypt: "מצרים"
 map.front_lebanon: "לבנון"
@@ -203,18 +235,61 @@ date.month_12: "דצמבר"
 info.owned: "יישובים: {0}"
 info.localities: "יישובים ב-1948: {0}"
 info.locality_today: "{0} (היום: {1})"
+# info.town_in_water: a town in a lake or sea hex drawn on the land hex next to it (#204), named by its name_he. "מוצגת
+# ... שלה" is feminine, as Hebrew city names are; the drift guard (EveryTownDrawnOffItsOwnHexLiesInWater) says only
+# Tiberias gets this line today. For the native reviewer (#564).
+info.town_in_water: "{0} מוצגת כאן, כי המשושה שלה מכוסה במים."
 map.today: "היום: {0}"
 map.mixed: "יישוב מעורב"
+# map.tier: the tooltip of the population-tier badge on a city's pill (#710): {0} its tier, {1} the number of tiers, {2} its
+# 1948 people. For the native reviewer (#564).
+map.tier: "דרגת אוכלוסייה {0} מתוך {1}: {2} תושבים ב-1948"
 minimap.overview: "התרחקות מרבית"
 minimap.labels: "הצגה או הסתרה של שמות היישובים"
 minimap.borders: "הצגה או הסתרה של גבולות האזורים"
 ui.lang: "he"
-info.built: "{0} נבנה כאן בשנת {1}"
+# #701: {1} is a month and a year ("אוגוסט 1950"). A date label with no verb, since a fixed "נבנה" is wrong for a feminine
+# name ("מעברה"); Beri approved this wording as a native speaker (17 October 2026). For the native reviewer (#564).
+info.built: "{0} – תאריך הקמה: {1}"
 info.queued: "ניתנה פקודה: {0}, בסיום התור"
 info.build_camp: "הקמת מעברה ({0})"
 info.build_housing: "בניית דיור ({0})"
 info.build_camp_plain: "הקמת מעברה"
 info.build_housing_plain: "בניית דיור"
+# Map-action refusal text (#881). info.map_action.* are nouns ("מעברה", "מיזם דיור"), so every sentence they go into
+# uses a verb or "יש" that does not agree with their gender ("אפשר להקים {0}", "כבר יש {0}"). For the native reviewer (#564).
+info.map_action.transit_camp: "מעברה"
+info.map_action.housing: "מיזם דיור"
+info.map_action_reason.unknown: "פעולת מפה כזאת אינה קיימת"
+info.map_action_reason.chapter: "פעולת המפה הזאת אינה זמינה בפרק זה"
+info.map_action_reason.game: "פעולת המפה הזאת אינה זמינה במשחק זה"
+info.map_action_reason.action_from: "אפשר להקים {0} החל מ־{1}"
+info.map_action_reason.action_until: "אפשר היה להקים {0} עד {1}"
+info.map_action_reason.all_from: "אפשר להקים מעברות ומיזמי דיור החל מ־{0}"
+info.map_action_reason.maabarot_policy: "הקמת מעברות מחייבת את מדיניות המעברות"
+info.map_action_reason.not_land: "המשושה הזה אינו יבשה"
+info.map_action_reason.too_far_one: "המשושה הזה נמצא במרחק של יותר מ־{0} משושה מיישוב"
+info.map_action_reason.too_far_many: "המשושה הזה נמצא במרחק של יותר מ־{0} משושים מיישוב"
+info.map_action_reason.occupied: "במשושה הזה כבר יש {0}"
+info.map_action_reason.turn_cap: "אי אפשר לבצע יותר מ־{0} פעולות מפה בתור אחד"
+# Cabinet candidate refusals (#901). The sim supplies content ids and ISO dates; the UI supplies the Hebrew names and
+# wording. No verb agrees with the person's gender ("כבר בתפקיד", not "מכהן"), since a woman can be any candidate.
+# Short, neutral drafts for the native reviewer (#564).
+cabinet.reason.office_unknown: "המשרה הזאת אינה קיימת במשחק"
+cabinet.reason.historical_office: "אי אפשר למנות לתפקיד ההיסטורי {0}"
+cabinet.reason.abolished: "המשרה {0} בוטלה ב־{1}"
+cabinet.reason.not_established: "אפשר למנות למשרת {0} החל מ־{1}"
+cabinet.reason.several_holders: "למשרה {0} כמה מכהנים, ואי אפשר עדיין למנות אליה במשחק"
+cabinet.reason.prime_minister: "אי אפשר למנות לתפקיד ראש הממשלה"
+cabinet.reason.president: "הכנסת בוחרת את הנשיא; אי אפשר למנות לתפקיד"
+cabinet.reason.person_unknown: "האדם הזה אינו קיים במשחק"
+cabinet.reason.died: "אי אפשר למנות את {0}: פטירה ב־{1}"
+cabinet.reason.is_president: "{0} כבר בתפקיד הנשיא"
+cabinet.reason.is_chief_of_staff: "{0} כבר בתפקיד הרמטכ״ל"
+cabinet.reason.already_holds: "{0} כבר בתפקיד {1}"
+cabinet.reason.no_government: "אין ממשלה מכהנת"
+cabinet.reason.not_career_officer: "ל־{0} אין שירות קבע בצה״ל"
+cabinet.reason.party_not_coalition: "{0} ממפלגת {1}, שאינה בקואליציה"
 info.biome.sea: "ים"
 info.biome.lake: "אגם"
 info.biome.coastal_plain: "מישור החוף"
@@ -246,5 +321,39 @@ save.unreadable: "לא ניתן היה לטעון את המשחק השמור ({0
 save.reason_other: "לא ניתן היה לקרוא את הקובץ או לשחזר את המשחק"
 save.refused.older_rules: "המשחק השמור נוצר בגרסה קודמת של חוקי המשחק ואי אפשר להמשיך אותו. משחק חדש התחיל."
 save.refused.newer_version: "המשחק השמור נוצר בגרסה חדשה יותר של המשחק ואי אפשר לפתוח אותו כאן. משחק חדש התחיל."
+# save.warning.*: a save made with other content is continued, and each warning kind the sim returns
+# (GameSession.ContentChanged, ReplayDiffers) is said here, not in the sim's English (#637). For the native reviewer (#564).
+save.warning.content_changed: "השמירה הזאת מגרסה קודמת של המשחק, לכן ייתכן שהאירועים יתפתחו קצת אחרת."
+save.warning.replay_differs: "המשחק שוחזר, אבל לא בדיוק כפי שנשמר."
 boot.failed: "לא ניתן היה להפעיל את Statecraft: {0}. יש לטעון את הדף מחדש."
+# boot.reason_other fills boot.failed's {0} instead of the exception's English text, which goes to the log (#637).
+# For the native reviewer (#564).
+boot.reason_other: "קבצי המשחק לא נטענו"
 save.write_failed: "לא ניתן היה לשמור את המשחק."
+# The info panel in the GDD loop (GddHexPanel, #381); the GDD's Hebrew for Halutz (חלוץ) and Hakhshara (הכשרה).
+city.housing: "דיור: {0} מתוך {1}"
+city.housing_condition: "דיור: {0} מתוך {1}, מצב {2}"
+city.jobs: "משרות: {0} מתוך {1} מאוישות"
+city.refugees: "פליטים ממתינים: {0}"
+city.recruits: "מגויסים: {0}"
+city.workers: "בעבודה: {0}"
+city.train_recruit: "אימון מגויסים: קבוצה אחת, {0}, {1}"
+city.train_halutz: "הכשרת חלוצים: קבוצה אחת, {0}, {1}"
+city.train_ordered: "הוזמנו {0}"
+city.track_recruit: "מגויסים"
+city.track_halutz: "חלוצים"
+city.cohort: "{0}: {1} באימון, עוד {2}"
+city.cancel: "ביטול"
+city.groups_one: "קבוצה אחת"
+city.groups: "{0} קבוצות"
+city.turns_one: "תור אחד"
+city.turns: "{0} תורות"
+city.cancel_ordered: "הביטול הוזמן"
+site.available: "אתר ייעודי ליישוב חדש"
+site.group: "קבוצת חלוצים {0}"
+site.build: "הקמת יישוב עם {0}: {1}, {2}"
+site.no_halutz: "אין קבוצת חלוצים פנויה. אפשר להכשיר קבוצה בעיר שיש בה הכשרה."
+site.building: "בבנייה בידי {0}: עוד {1}"
+site.stop: "עצירת הבנייה (הכסף שהוצא לא יוחזר)"
+site.built: "נוסד ב־{0}"
+site.ordered: "הוזמן"

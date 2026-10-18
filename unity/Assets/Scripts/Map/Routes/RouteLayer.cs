@@ -11,7 +11,8 @@ namespace Statecraft.Game.Map.Routes
     /// Statecraft/Route materials in Resources (no runtime Shader.Find, no new serialized field on MapScene). Each route
     /// shows only while the game date is inside its window (RoutePath.From/To; review C1: the Burma Road from 14 June
     /// 1948): routes are grouped by window, one ribbon pair per group, and <see cref="ShowAt"/> switches the groups. A
-    /// steam train on the Jaffa–Jerusalem line is a showcase, never normal play (review I1, <see cref="ModeFor"/>). Widths are symbolic, measured on the
+    /// steam train runs on the Jaffa–Jerusalem line: in normal play only from the sourced date regular service resumed
+    /// (<see cref="ServiceTrain"/>, issue #668), and as the promo's showcase in screenshots and `?train` (<see cref="ModeFor"/>). Widths are symbolic, measured on the
     /// promo's gameplay frame like the settlements and units (docs/routes.md): a road's pale core about 8 px and the railway
     /// about 16 px wide at 1920 px (the soft edges take about a sixth of the railway's width, so its bed is drawn 680 m), so they read at the gameplay zoom as the promo draws them. Registers the "routes" (ribbons)
     /// and "train" visual toggles, so the frame profile prices each. Pure geometry from the data: the same file gives the
@@ -35,10 +36,13 @@ namespace Statecraft.Game.Map.Routes
         /// <summary>Height above the highest ground sampled around each vertex; the shader's depth offset does the rest.</summary>
         public const float ClearanceM = 20f;
 
-        /// <summary>The showcase train's route and stretch: the Jaffa–Jerusalem railway from its Jaffa end to Lydda junction,
-        /// the stretch the promo's train runs (promo/final/03). It is ambience for the promo frames, not a timetable: no
-        /// regular trains ran here from the British withdrawal in May 1948 until Lydda was taken in July and service resumed
-        /// later (Palestine Railways), which is why normal play shows no train (<see cref="ModeFor"/>).</summary>
+        /// <summary>The train's route: the Jaffa–Jerusalem railway. The showcase runs from its Jaffa end to Lydda junction
+        /// (<see cref="TrainTurnAt"/>), the stretch the promo's train runs (promo/final/03): ambience for the promo frames, not
+        /// a timetable. No regular trains ran on the line from the British withdrawal in May 1948 until 2 March 1950, after
+        /// Lydda was taken in July 1948 and the 1949 armistice (Israel Railways; routes_1948.yaml), so normal play runs its
+        /// train only from then, on the stretches of the route's service that run (Lod to Jerusalem, the 1950 service's
+        /// stretch of this line; Tel Aviv South to Lod once a person signs it off): <see cref="ServiceTrain"/>, maintainer
+        /// decision on #35, 16 October 2026.</summary>
         public const string TrainRoute = "jaffa_jerusalem_railway";
         public static readonly (double lon, double lat) TrainTurnAt = (34.87556, 31.94583);   // Lod railway station
 
@@ -46,13 +50,15 @@ namespace Statecraft.Game.Map.Routes
         /// game's start, 15 May 1948.</summary>
         public static readonly DateTime DefaultDate = new DateTime(1948, 5, 15);
 
-        public enum TrainMode { None, Still, Moving }
+        /// <summary>None: no train. Still and Moving: the promo's showcase train. Service: normal play's (issue #668), from
+        /// the route's sourced service date only.</summary>
+        public enum TrainMode { None, Still, Moving, Service }
 
-        /// <summary>Whether there is a train and whether it moves (review I1): editor renders and screenshots (`?shot` /
-        /// `-shot`) show the promo's still train; `?train` or `?units` (desktop `-train` / `-units`) asks for the moving
-        /// showcase; normal play has none, as no service is sourced for the line at the game's dates.</summary>
+        /// <summary>Which train (review I1; issue #668): editor renders and screenshots (`?shot` / `-shot`) show the promo's
+        /// still train; `?train` or `?units` (desktop `-train` / `-units`) asks for the moving showcase; normal play runs the
+        /// service train, from the date regular service resumed (<see cref="ServiceTrain"/>).</summary>
         public static TrainMode ModeFor(bool playing, bool shot, bool requested) =>
-            !playing || shot ? TrainMode.Still : requested ? TrainMode.Moving : TrainMode.None;
+            !playing || shot ? TrainMode.Still : requested ? TrainMode.Moving : TrainMode.Service;
 
         public static bool TrainRequested(string? url, string[] args, bool webgl) =>
             webgl ? Boot.UrlFlags.Has(url, "train") || Boot.UrlFlags.Has(url, "units") : Array.IndexOf(args, "-train") >= 0 || Array.IndexOf(args, "-units") >= 0;
@@ -68,6 +74,10 @@ namespace Statecraft.Game.Map.Routes
             if (map == null) return;
             map.RouteDate = date;                   // a later rebuild of this map starts at the game's date (re-review nit 2)
             if (map.Terrain == null) return;
+            var service = map.Terrain.transform.Find($"{RootName}/{ServiceTrain.Name}");
+            if (service != null) service.GetComponent<ServiceTrain>().ShowAt(date);   // from the service date on (issue #668)
+            var vehicles = map.Terrain.transform.Find($"{RootName}/{RoadVehicles.Name}");
+            if (vehicles != null) vehicles.GetComponent<RoadVehicles>().ShowAt(date);
             var ribbons = map.Terrain.transform.Find($"{RootName}/{RibbonsName}");
             if (ribbons == null) return;
             foreach (var g in ribbons.GetComponentsInChildren<RouteGroup>(true)) g.gameObject.SetActive(g.Window.Covers(date));
@@ -82,7 +92,7 @@ namespace Statecraft.Game.Map.Routes
         /// lot or crown still keeps about 130 m from the visible dirt.</summary>
         public const float RoadCorridorMarginM = 40f;
 
-        /// <summary>Every route's line (world x, z) with the half-width kits must keep clear of: half the drawn width plus
+        /// <summary>Every route's traced line (world x, z; <see cref="World"/>, not cut as <see cref="Drawn"/> is) with the half-width kits must keep clear of: half the drawn width plus
         /// <see cref="CorridorMarginM"/> (<see cref="RoadCorridorMarginM"/> for roads). All routes, whatever their window: the
         /// kits are built once, not per date, so a route that appears later (the Burma Road) has its corridor from the start.</summary>
         public static List<(List<Vector2> line, float halfWidth)> Corridors(GeoFrame frame, IEnumerable<RoutePath> routes) =>
@@ -126,7 +136,7 @@ namespace Statecraft.Game.Map.Routes
         /// <summary>A plan's ribbon, derived from the terrain (what the bake stores). A change to it or to what it calls
         /// (World, Geometry and their helpers) needs a re-bake and a bump of RouteRibbonFile.Version (see Plan).</summary>
         public static RibbonGeometry Derive(RibbonPlan plan, GeoFrame frame, TerrainData data, Vector3 origin) =>
-            Geometry(plan.Routes.Select(r => (r.Id, World(frame, r), WidthOf(r.Kind))), data, origin, plan.RailGrade);
+            Geometry(plan.Routes.Select(r => (r.Id, Drawn(frame, r), WidthOf(r.Kind))), data, origin, plan.RailGrade);
 
         /// <summary>Builds the routes under <paramref name="terrain"/> (so a map rebuild destroys them): one group per display
         /// window (its rail and road ribbons), shown as at <paramref name="date"/>, and, when <paramref name="train"/> is not
@@ -138,7 +148,7 @@ namespace Statecraft.Game.Map.Routes
         /// is refused with a warning and the ribbons derived at load, the same meshes, only slower (issue #321). Without it
         /// they are derived.</summary>
         public static GameObject Build(Terrain terrain, GeoFrame frame, IReadOnlyList<RoutePath> routes, TrainMode train, DateTime date,
-            RouteRibbonFile.Source? baked = null)
+            RouteRibbonFile.Source? baked = null, MapScene? map = null)
         {
             if (terrain == null) throw new ArgumentNullException(nameof(terrain));
             if (routes == null) throw new ArgumentNullException(nameof(routes));
@@ -181,8 +191,20 @@ namespace Statecraft.Game.Map.Routes
             }
             assets.OnTeardown(VisualToggles.Register(RoutesToggle, on => { if (ribbons != null) ribbons.SetActive(on); }));
 
+            if (map != null) RoadVehicles.Create(root.transform, map, routes, date);
+
             var trainRoute = routes.FirstOrDefault(r => r.Id == TrainRoute);
-            if (trainRoute != null && train != TrainMode.None)
+            if (trainRoute != null && train == TrainMode.Service)
+            {
+                // Normal play: nothing is built or fetched before the route's service date (issue #668). No service (the YAML
+                // fallback carries none, or it was refused with a warning): no train.
+                if (trainRoute.Service != null)
+                {
+                    var service = ServiceTrain.Create(root.transform, assets, frame, trainRoute, data, origin, date);
+                    assets.OnTeardown(VisualToggles.Register(TrainToggle, on => { if (service != null) service.gameObject.SetActive(on); }));
+                }
+            }
+            else if (trainRoute != null && train != TrainMode.None)
             {
                 var go = RouteTrain.Spawn(root.transform, assets, World(frame, trainRoute), data, origin,
                     frame.ToWorld(TrainTurnAt.lon, TrainTurnAt.lat, 0), frame.ToWorld(RouteTrain.StillAt.lon, RouteTrain.StillAt.lat, 0),
@@ -222,6 +244,50 @@ namespace Statecraft.Game.Map.Routes
                 if (w.Count == 0 || (q - w[w.Count - 1]).sqrMagnitude > 1e-4f) w.Add(q);
             }
             return w;
+        }
+
+        /// <summary>A route's line as the map draws its ribbon: <see cref="World"/>, with a road's or a railway's ends
+        /// cut at the walls of Jerusalem's symbolic Old City (#319). The walled square (SettlementKits.OldCityWalls) is 4 km
+        /// across, about 4 times the real Old City, so the real 1948 roads that start outside the real walls, by New Gate and
+        /// Jaffa Gate, and the Jaffa-Jerusalem railway's station, also outside them, fall inside it. Cut there, each line
+        /// ends on the wall line, where the walls leave it a gap (the railway on the owner's ruling, "Cut it at the walls"),
+        /// and the traced data keeps the real lines. Only a line's ends are cut: one that ran through the square would keep
+        /// its middle, and RouteTests.TheRoadsAndTheRailwayStopAtTheOldCityWalls fails on it. Tracks are not cut (none comes
+        /// near). The corridors (<see cref="Corridors"/>) keep the traced lines, so the kits and the units stand where
+        /// they did: inside the walls the roads' clear ways read as the streets from the gates.</summary>
+        public static List<Vector2> Drawn(GeoFrame frame, RoutePath route)
+        {
+            var line = World(frame, route);
+            if (route.Kind == RoutePaths.Track) return line;
+            var (centre, half) = Kits.SettlementKits.OldCityWalls(frame);
+            return TrimEndsInside(line, centre, half);
+        }
+
+        /// <summary><paramref name="line"/> without its leading and trailing runs inside the square (centre
+        /// <paramref name="c"/>, half side <paramref name="half"/>), each cut where it crosses the square's edge. A line wholly
+        /// inside comes back empty, one wholly outside unchanged.</summary>
+        public static List<Vector2> TrimEndsInside(List<Vector2> line, Vector2 c, float half)
+        {
+            bool Inside(Vector2 p) => Mathf.Abs(p.x - c.x) < half && Mathf.Abs(p.y - c.y) < half;
+            int first = line.FindIndex(p => !Inside(p)), last = line.FindLastIndex(p => !Inside(p));
+            if (first < 0) return new List<Vector2>();
+            if (first == 0 && last == line.Count - 1) return line;
+            var cut = new List<Vector2>(last - first + 3);
+            void Add(Vector2 q) { if (cut.Count == 0 || (q - cut[cut.Count - 1]).sqrMagnitude > 1e-4f) cut.Add(q); }
+            if (first > 0) Add(Exit(line[first - 1], line[first], c, half));
+            for (int i = first; i <= last; i++) Add(line[i]);
+            if (last < line.Count - 1) Add(Exit(line[last + 1], line[last], c, half));
+            return cut;
+        }
+
+        /// <summary>Where the segment from <paramref name="a"/> (inside the square) to <paramref name="b"/> (outside) crosses
+        /// its edge.</summary>
+        static Vector2 Exit(Vector2 a, Vector2 b, Vector2 c, float half)
+        {
+            var d = b - a; float t = 1f;
+            if (d.x != 0f) t = Mathf.Min(t, ((d.x > 0f ? c.x + half : c.x - half) - a.x) / d.x);
+            if (d.y != 0f) t = Mathf.Min(t, ((d.y > 0f ? c.y + half : c.y - half) - a.y) / d.y);
+            return a + d * Mathf.Max(0f, t);
         }
 
         /// <summary>Points every <paramref name="step"/> metres along a polyline, its last point included, and the

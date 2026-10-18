@@ -33,8 +33,10 @@ public class InfoPanelLayoutTests
 
     /// <summary>The real Game.uxml on the real PanelSettings at w x h, out of its loading state, with the top bar, an open event
     /// card and the info panel (with the region lines) on the session given.</summary>
-    static IEnumerator Rendered(int w, int h, GameSession g, System.Action<VisualElement, InfoPanelPresenter> act, System.Action<VisualElement> check)
+    static IEnumerator Rendered(int w, int h, GameSession g, System.Action<VisualElement, InfoPanelPresenter> act, System.Action<VisualElement> check,
+                                UiText? text = null, bool hebrew = false)
     {
+        var t = text ?? Text;
         var rt = new RenderTexture(w, h, 0);
         var ps = Object.Instantiate(AssetDatabase.LoadAssetAtPath<PanelSettings>(UiPaths.Panel));
         ps.targetTexture = rt;
@@ -46,10 +48,11 @@ public class InfoPanelLayoutTests
         go.SetActive(true);
         var root = doc.rootVisualElement;
         root.Q("root").RemoveFromClassList("loading");
-        var bridge = new SimBridge(g, Text);
-        var hud = new HudPresenter(root, bridge, Text);
-        var card = new EventCardPresenter(root, bridge, Text, null);
-        var info = new InfoPanelPresenter(root, bridge, Text, Names(), regions: Regions());
+        if (hebrew) root.Q("root").AddToClassList(UiLanguage.HebrewClass);
+        var bridge = new SimBridge(g, t);
+        var hud = new HudPresenter(root, bridge, t);
+        var card = new EventCardPresenter(root, bridge, t, null);
+        var info = new InfoPanelPresenter(root, bridge, t, Names(), regions: Regions());
         try
         {
             act(root, info);
@@ -129,6 +132,43 @@ public class InfoPanelLayoutTests
         Assert.IsEmpty(problems, string.Join("\n", problems));
     }
 
+    /// <summary>GDD Phase 1 PR 8 (#381): the city panel with two training cohorts (a Cancel each) and the
+    /// designated site's panel (two idle halutz groups, so two Build buttons), at every window size in English and Hebrew:
+    /// the panel lies in the window, clear of the minimap, the left column and the top bar, and every shown label and
+    /// button lies inside the panel with its text fitting its box.</summary>
+    [UnityTest]
+    public IEnumerator TheGddCityAndSitePanelsFitEveryWindow()
+    {
+        var he = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.StringsHebrew).text, "strings.he.yaml");
+        var city = C.SettlementHexes.Single(s => s.Id == "tel_aviv");
+        var site = C.Sites.Single(s => s.Id == "mefalsim");
+        var problems = new List<string>();
+        foreach (var hebrew in new[] { false, true })
+            foreach (var (w, h) in Windows)
+                foreach (var (what, q, r) in new[] { ("city", city.Q, city.R), ("site", site.Q, site.R) })
+                {
+                    var g = GameSession.New(C, GoldenRun.Seed, Mode.Historical);
+                    var s = g.State;
+                    for (int k = 0; k < 2; k++) { var id = s.NextId++; s.Cohorts.Add(id, new Cohort(id, k == 0 ? "recruit" : "halutz", "tel_aviv", 12, 4)); }
+                    for (int k = 0; k < 2; k++) { var id = s.NextId++; s.Units.Add(id, new Unit(id, "halutz", city.Q, city.R)); }
+                    var at = $"{(hebrew ? "he" : "en")} {w}x{h} {what}";
+                    yield return Rendered(w, h, g, (root, info) => info.Show(q, r), root =>
+                    {
+                        var panel = root.Q("info-panel"); var window = root.worldBound;
+                        if (root.Q(GddHexPanel.HostName).resolvedStyle.display != DisplayStyle.Flex) { problems.Add($"{at}: precondition: the GDD part shows"); return; }
+                        if (!Inside(panel.worldBound, window)) problems.Add($"{at}: the panel {panel.worldBound} leaves the window {window}");
+                        foreach (var other in new[] { "minimap", "left-column", "top-bar" })
+                            if (panel.worldBound.Overlaps(root.Q(other).worldBound)) problems.Add($"{at}: the panel {panel.worldBound} overlaps the {other} {root.Q(other).worldBound}");
+                        foreach (var l in panel.Query<TextElement>().ToList().Where(l => !string.IsNullOrEmpty(l.text) && Shown(l)))
+                        {
+                            if (!Inside(l.worldBound, panel.worldBound)) problems.Add($"{at}: '{l.text}' {l.worldBound} leaves the panel {panel.worldBound}");
+                            if (!TextFits(l)) problems.Add($"{at}: '{l.text}' does not fit its box {l.contentRect} ({l.name})");
+                        }
+                    }, hebrew ? he : Text, hebrew);
+                }
+        Assert.IsEmpty(problems, string.Join("\n", problems));
+    }
+
     /// <summary>Before a hex is chosen the panel is a one-line hint (the promo shows no panel until a tile is chosen): no
     /// terrain sign, no rows, and no taller than the hint's line and the panel's padding.</summary>
     [UnityTest]
@@ -203,6 +243,79 @@ public class InfoPanelLayoutTests
             Assert.IsFalse(ui.Q<Button>(b).enabledSelf, $"{b} stays disabled");
         }
         info.Dispose();
+    }
+
+    /// <summary>#204: Tiberias lies in the lake hex and is drawn on the land hex next to it (hexgrid.settlement_hex), so that
+    /// hex's 70 m is not the town's: its panel says so in one line, in English and in Hebrew. An ordinary hex (Lydda's,
+    /// whose towns lie in it) has no such line. The Hebrew line names the town by its name_he (טבריה).</summary>
+    [Test]
+    public void ATownDrawnFromTheWaterHexNextDoorSaysSo()
+    {
+        var settlements = SettlementPlacer.Parse(MapFile(SettlementPlacer.DefaultFileName));
+        var townHex = InfoPanelPresenter.TownHex(settlements, JsonUtility.FromJson<HexFile>(MapFile("hexes.json")));
+        var namesHe = settlements.ToDictionary(t => t.Id, t => t.NameHe);
+        var tiberias = C.SettlementHexes.Single(s => s.Id == "tiberias");
+        var lod = C.SettlementHexes.Single(s => s.Id == "lod");
+        var he = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.StringsHebrew).text, "strings.he.yaml");
+        foreach (var (text, line, words) in new[]
+        {
+            (Text, "Tiberias is shown here because its own hex is water.", "its own hex is water"),
+            (he, "טבריה מוצגת כאן, כי המשושה שלה מכוסה במים.", "מכוסה במים"),
+        })
+        {
+            using var ui = new UiTestKit();
+            var info = new InfoPanelPresenter(ui.Root, new SimBridge(GameSession.New(C, GoldenRun.Seed, Mode.Historical), text), text, Names(),
+                townHex: townHex, townNamesHe: namesHe);
+            info.Show(tiberias.Q, tiberias.R);
+            var lines = ui.Q<Label>("info-settlements").text.Split('\n');
+            Assert.AreEqual(line, lines.Last(), $"{text["ui.lang"]}: Tiberias' hex names the water hex");
+            info.Show(lod.Q, lod.R);
+            StringAssert.DoesNotContain(words, ui.Q<Label>("info-settlements").text, $"{text["ui.lang"]}: Lydda's hex has no note");
+            info.Dispose();
+        }
+    }
+
+    /// <summary>#899: under Hebrew the panel's title and its "Settlements" line name the hex's towns by their name_he (all 25
+    /// settlement rows have one); under English both stay the English names.</summary>
+    [Test]
+    public void InHebrewTheTitleAndTheSettlementsLineAreTheTownsHebrewNames()
+    {
+        var namesHe = SettlementPlacer.Parse(MapFile(SettlementPlacer.DefaultFileName)).ToDictionary(t => t.Id, t => t.NameHe);
+        var names = Names();
+        var lod = C.SettlementHexes.Single(s => s.Id == "lod");
+        var owned = C.SettlementHexes.Where(s => s.Q == lod.Q && s.R == lod.R).Select(s => s.Id).ToList();
+        var he = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.StringsHebrew).text, "strings.he.yaml");
+        Assert.AreEqual("לוד", namesHe["lod"]);
+        foreach (var (text, name) in new (UiText, System.Func<string, string>)[] { (Text, id => names[id]), (he, id => namesHe[id]!) })
+        {
+            using var ui = new UiTestKit();
+            var info = new InfoPanelPresenter(ui.Root, new SimBridge(GameSession.New(C, GoldenRun.Seed, Mode.Historical), text), text, names,
+                townNamesHe: namesHe);
+            info.Show(lod.Q, lod.R);
+            Assert.AreEqual(name(owned[0]), ui.Q<Label>("info-title").text, $"{text["ui.lang"]}: the title");
+            Assert.AreEqual(text.Format("info.owned", string.Join(", ", owned.Select(name))), ui.Q<Label>("info-settlements").text,
+                $"{text["ui.lang"]}: the Settlements line");
+            info.Dispose();
+        }
+    }
+
+    /// <summary>#204 drift guard: the note says "water hex" because a town's own hex (TownHex) differs from its drawn hex
+    /// only where hexgrid.settlement_hex moved it off a water hex. Every such town's own hex is on the map and not land, and
+    /// there is at least one (Tiberias), so the guard cannot pass on an empty list.</summary>
+    [Test]
+    public void EveryTownDrawnOffItsOwnHexLiesInWater()
+    {
+        var townHex = InfoPanelPresenter.TownHex(SettlementPlacer.Parse(MapFile(SettlementPlacer.DefaultFileName)),
+            JsonUtility.FromJson<HexFile>(MapFile("hexes.json")));
+        var moved = C.SettlementHexes.Where(s => townHex(s.Id) != (s.Q, s.R)).ToList();
+        CollectionAssert.Contains(moved.Select(s => s.Id).ToList(), "tiberias", "Tiberias is drawn off its own (lake) hex");
+        foreach (var s in moved)
+        {
+            var (q, r) = townHex(s.Id);
+            var own = C.HexAt(q, r);
+            Assert.IsNotNull(own, $"{s.Id}: its own hex ({q}, {r}) is on the map");
+            Assert.IsFalse(own!.Land, $"{s.Id}: drawn on ({s.Q}, {s.R}) but its own hex ({q}, {r}) is land, so the water-hex note would be wrong");
+        }
     }
 
     /// <summary>#401's DPR-2 p95 rise was the filigree drawn as Painter2D curves. It is now one small code-made texture per

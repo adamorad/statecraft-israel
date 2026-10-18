@@ -4,6 +4,18 @@ The map draws the railways and main roads of 1948, each from its sourced date, a
 `02-map-diorama.png`, and the 0:21 close-up of `promo/demo/out/demo-16x9.mp4`). Civilian boats are out of scope (owner).
 On 2026-10-14 the owner reversed that for civilian boats ("Keep civilian boats"); they are map art in #536, not routes.
 
+## Relationship to location authoring
+
+The [Locations specification](locations.md) defines map-production priorities; [Corridors](gdd/corridors.md) keeps
+the required construction routes and their reference-date decisions. Optional additional work on a town or immigrant
+camp does not make a required station or route waypoint optional. The MVP railway is the 1949 link via Rosh HaAyin, not
+the later coastal line (Q-RAIL-1, decided by the owner on 17 October 2026, [#782](https://github.com/eyalgolan/statecraft-israel/issues/782#issuecomment-6231352128)).
+
+The [Map editor](gdd/map-editor.md) must report dependencies when a location or corridor endpoint moves. Authored
+gameplay placement is separate from sourced waypoint coordinates and traced geometry. A marker move must not silently
+retrace a route, replace historical source evidence or break a sim corridor's hex bindings. Resolve the dependency in
+the appropriate authoring inputs, then regenerate and validate affected traces, segment bindings and baked outputs.
+
 ## Files
 
 | What | Where |
@@ -145,6 +157,18 @@ measurement in `docs/units.md`:
 | Dirt road | about 8 px | 420 m (its pale core, inside the soft verges, about 280 m) |
 | Burma Road | (not in the promo) | 200 m |
 | Train (six cars) | about 250 px, about 8.8 km | 8.8 km: locomotive, tender and four coaches at 80x real length and 1.5x stockier across (at a uniform 65x the first checkpoint drew a thin dark line) |
+
+**Jerusalem's Old City** (#319). The kits draw the Old City as a walled square 4 km across
+(`SettlementKits.OldCityWalls`), about 4 times the real one. The four roads that start there in the traced data
+(Jaffa–Jerusalem, Hebron, Nablus and Jericho) meet at a point about 60 m west of New Gate, outside the real walls, and
+none crosses the real walled city, but near the city they fall inside the drawn square. The data keeps the real lines; the map cuts them instead (`RouteLayer.Drawn`):
+- each road's run inside the square is cut off at the wall line, where the walls leave a gate for it;
+- only the ribbons are cut; the corridors the kits and the units keep clear of stay on the traced lines, so no building
+  or unit moves, and inside the walls the roads' clear ways read as the streets from the gates;
+- the Jaffa–Jerusalem railway is cut the same way (owner, 16 October 2026: "Cut it at the walls"). Its station was outside
+  the real walls, south-west of Jaffa Gate, but falls inside the drawn square, so the railway ends at the south wall;
+- only a line's ends are cut, so a road or railway traced through the square would fail
+  `RouteTests.TheRoadsAndTheRailwayStopAtTheOldCityWalls` and `test_no_road_or_railway_runs_inside_the_old_city_walls`.
 
 **The mesh** (`RouteLayer.Ribbon`).
 - A cross-section every 120 m, square to the line's direction averaged over two steps each way.

@@ -16,7 +16,7 @@ using UnityEngine.UIElements;
 /// <summary>HUD round 2, part 2 (#398): promo/final/03's left icon column. It holds the four screens' buttons, moved from
 /// the top bar (no new action): Cabinet, Budget, Defence, Why?. They are round icons with no caption; each one's name is its
 /// text (clear) and its tooltip, which HoverTip shows beside it. The Hebrew UI mirrors rows, not the screen's corners (#550),
-/// so the column stays at the left. Tab still runs Cabinet, Budget, Defence, Why?, New Game, End Turn.</summary>
+/// so the column stays at the left. Tab still runs Cabinet, Budget, Defence, Why?, then Settings (#40), New Game, End Turn.</summary>
 public class LeftColumnTests
 {
     static readonly Content C = ContentLoader.Load(Paths.Content);
@@ -33,13 +33,16 @@ public class LeftColumnTests
     {
         ("nav-cabinet", "hud.nav.cabinet", "columns"), ("nav-budget", "hud.nav.budget", "ledger"),
         ("nav-defence", "hud.nav.defence", "helmet"), ("nav-why", "hud.nav.why", "question"),
+        ("nav-settings", "hud.nav.settings", "gear"),
     };
 
-    /// <summary>InfoPanelLayoutTests' 19 window sizes.</summary>
+    /// <summary>InfoPanelLayoutTests' 19 window sizes, and the smaller phones held upright the owner's floor reaches (#642,
+    /// "down to 375x667"): 360x800 and 375x667.</summary>
     static readonly (int w, int h)[] Windows =
     {
         (1920, 1080), (1280, 720), (1366, 768), (1760, 1000), (1920, 1200), (1440, 900), (1680, 1050), (1024, 768), (1280, 1024),
         (1024, 1024), (960, 1080), (800, 1000), (1531, 784), (2560, 1080), (1920, 900), (1600, 757), (1366, 657), (960, 600), (390, 844),
+        (360, 800), (375, 667),
     };
 
     static GameSession WithAnEventOpen()
@@ -55,8 +58,9 @@ public class LeftColumnTests
 
     /// <summary>The real Game.uxml on the real PanelSettings at w x h, in English or Hebrew, with the top bar, the screens'
     /// navigation, the decision card (open when the session has an event), the info panel on Lydda's hex, the minimap and the
-    /// border caption.</summary>
-    static IEnumerator Rendered(int w, int h, bool hebrew, GameSession g, System.Action<VisualElement, ScreenNav> check, System.Action<VisualElement, ScreenNav>? act = null)
+    /// border caption. <paramref name="photos"/>: the card shows its event's photograph (the taller card).</summary>
+    static IEnumerator Rendered(int w, int h, bool hebrew, GameSession g, System.Action<VisualElement, ScreenNav> check, System.Action<VisualElement, ScreenNav>? act = null,
+                                EventImageCatalog? photos = null)
     {
         var text = hebrew ? He : En;
         var rt = new RenderTexture(w, h, 0);
@@ -74,7 +78,7 @@ public class LeftColumnTests
         var bridge = new SimBridge(g, text);
         var hud = new HudPresenter(root, bridge, text);
         var nav = new ScreenNav(root);
-        var card = new EventCardPresenter(root, bridge, text, null);
+        var card = new EventCardPresenter(root, bridge, text, null, photos);
         var info = new InfoPanelPresenter(root, bridge, text, Names(), regions: Regions());
         var mini = new MinimapPresenter(root, Hexes, text);
         var layer = root.Q<Label>("map-layer");
@@ -96,10 +100,10 @@ public class LeftColumnTests
         }
     }
 
-    /// <summary>The column holds the four screens, in the top bar's old order, each a round icon whose name is its text and
+    /// <summary>The column holds the four screens, in the top bar's old order, then Settings (#40), each a round icon whose name is its text and
     /// its tooltip in both languages; the top bar keeps New Game and End Turn only. No new button: the screens are ScreenNav's.</summary>
     [Test]
-    public void TheColumnHoldsTheFourScreensAsRoundIconsNamedInBothLanguages()
+    public void TheColumnHoldsTheScreensAsRoundIconsNamedInBothLanguages()
     {
         foreach (var hebrew in new[] { false, true })
         {
@@ -161,6 +165,39 @@ public class LeftColumnTests
         Assert.IsEmpty(problems, string.Join("\n", problems));
     }
 
+    /// <summary>Review of #859 at fb2a8dc (WebGL) and the owner's ruling there (17 October 2026): on a phone held upright,
+    /// 390x844, 360x800 and 375x667, with a photo card open (turn 0's One Army and turn 1's The First Truce, taller than
+    /// WithAnEventOpen's card, which the test above uses), no rail button sits under the card, Why? and Settings included
+    /// (they did on main), in English and Hebrew.</summary>
+    [UnityTest]
+    public IEnumerator OnAPhoneThePhotoCardLeavesTheRailClear()
+    {
+        var catalog = AssetDatabase.LoadAssetAtPath<EventImageCatalog>("Assets/Resources/EventImageCatalog.asset");
+        Assert.IsNotNull(catalog, "precondition: the photo catalog");
+        var problems = new List<string>();
+        var turn0 = GameSession.New(C, GoldenRun.Seed, Mode.Historical);
+        CollectionAssert.AreEqual(new[] { "idf_founding" }, turn0.State.PendingEvents, "precondition: One Army at turn 0");
+        var turn1 = GameSession.New(C, GoldenRun.Seed, Mode.Historical);
+        turn1.Step(new Command[0]);
+        Assert.IsNotEmpty(turn1.State.PendingEvents, "precondition: an event at turn 1");
+        foreach (var (turn, g) in new[] { (0, turn0), (1, turn1) })
+            foreach (var hebrew in new[] { false, true })
+                foreach (var (w, h) in new[] { (390, 844), (360, 800), (375, 667) })
+                    yield return Rendered(w, h, hebrew, g, (root, nav) =>
+                    {
+                        string at = $"{(hebrew ? "he" : "en")} {w}x{h} turn {turn} {g.State.PendingEvents[0]}";
+                        if (!(root.Q("event-photo").worldBound.height > 0)) { problems.Add($"{at}: precondition: the card shows its photograph"); return; }
+                        var card = root.Q("event-card").worldBound;
+                        foreach (var (name, _, _) in Rail)
+                        {
+                            var b = root.Q(name).worldBound;
+                            TestContext.WriteLine($"{at}: {name} {b}, the card {card}");
+                            if (b.Overlaps(card)) problems.Add($"{at}: the card {card} covers {name} {b}");
+                        }
+                    }, photos: catalog);
+        Assert.IsEmpty(problems, string.Join("\n", problems));
+    }
+
     /// <summary>Each screen opens clear of the column at every window size (a screen under the column would hide the button
     /// that closes it), and the toast too, in English and Hebrew.</summary>
     [UnityTest]
@@ -201,7 +238,7 @@ public class LeftColumnTests
     static Rect Hull(VisualElement root) => root.Q(Column).Query<Button>().ToList().Select(b => b.worldBound)
         .Aggregate((a, b) => Rect.MinMaxRect(Mathf.Min(a.xMin, b.xMin), Mathf.Min(a.yMin, b.yMin), Mathf.Max(a.xMax, b.xMax), Mathf.Max(a.yMax, b.yMax)));
 
-    /// <summary>The audit's focus order is kept: Cabinet, Budget, Defence, Why?, New Game, End Turn (then the minimap's
+    /// <summary>The audit's focus order is kept: Cabinet, Budget, Defence, Why?, Settings, New Game, End Turn (then the minimap's
     /// buttons, out of reach under the open card). The column is out of Tab's reach under the start screen and an outcome clip, as the top bar is, and usable
     /// under the decision card, as the top bar is.</summary>
     [UnityTest]
@@ -215,7 +252,7 @@ public class LeftColumnTests
                 var order = root.Query<VisualElement>().Where(e => e.focusable && e.canGrabFocus && e.tabIndex >= 0 && e is Button).ToList()
                     .Select(e => e.name).Where(n => n.StartsWith("nav-") || n == "new-game" || n == "end-turn" || n.StartsWith("minimap-")).ToList();
                 // Under the open card the minimap column is out of reach (the backdrop covers it); the column and the bar are not.
-                CollectionAssert.AreEqual(new[] { "nav-cabinet", "nav-budget", "nav-defence", "nav-why", "new-game", "end-turn" },
+                CollectionAssert.AreEqual(new[] { "nav-cabinet", "nav-budget", "nav-defence", "nav-why", "nav-settings", "new-game", "end-turn" },
                     order, $"{at}: the Tab order under the open card");
                 var r = root.Q("root");
                 Assert.IsTrue(r.ClassListContains(EventCardPresenter.ModalClass), at + ": precondition: the card is open");

@@ -132,7 +132,7 @@ public class TownCensusTests
     }
 
     /// <summary>Each city's landmarks are built (docs/visual-v1.md, "Towns round 2"); every other Arab or old town has its
-    /// mosque, and every moshava, kibbutz and moshav its water tower.</summary>
+    /// mosque, and every moshava, kibbutz and moshav its water tower (Revivim, a Negev lookout, its yard and tower instead).</summary>
     [Test]
     public void EveryTownHasItsLandmarks()
     {
@@ -145,6 +145,7 @@ public class TownCensusTests
             ["haifa"] = new[] { "port", "warehouse", "german_colony" },
             ["jerusalem"] = new[] { "walls", "gate", "citadel", "haram", "dome_of_the_rock", "al_aqsa" },
             ["ramla"] = new[] { "mosque", "white_tower" },
+            ["revivim"] = new[] { "outpost_yard", "lookout_tower" },   // a Negev lookout (#32), not a moshava
         };
         var missing = new List<string>();
         foreach (var s in map.Settlements)
@@ -156,7 +157,25 @@ public class TownCensusTests
             foreach (var k in expect) if (!kinds.Contains(k)) missing.Add($"{s.Id}: {k}");
         }
         CollectionAssert.IsEmpty(missing, "landmarks left out");
-        Assert.GreaterOrEqual(placed.Count(p => p.Id == "jerusalem" && p.Kind == "gate"), 3, "most of the Old City's gates stand");
+        // Eight gates, all open but the Gate of Mercy (the Golden Gate), Israel Ministry of Tourism,
+        // https://israel.travel/the-gates-of-jerusalem/, checked 18 October 2026; the seventh, the New Gate, opened in 1887
+        // or 1889 (https://en.wikipedia.org/wiki/Gates_of_the_Old_City_of_Jerusalem and
+        // https://en.wikipedia.org/wiki/New_Gate, both checked 18 October 2026), so seven stood open before the 1948 war.
+        var gates = placed.Where(p => p.Id == "jerusalem" && p.Kind == "gate").ToList();
+        Assert.AreEqual(7, gates.Count, "the Old City's seven open gates stand");
+        // Seven distinct gatehouses: none overlaps another, or none would read as two gates.
+        for (int i = 0; i < gates.Count; i++)
+            for (int j = i + 1; j < gates.Count; j++)
+                Assert.GreaterOrEqual((gates[i].C - gates[j].C).magnitude, gates[i].W, $"gates at {gates[i].C} and {gates[j].C} overlap");
+
+        // The Haram al-Sharif / Temple Mount: 488 m along the west, 470 m along the east, 315 m along the north and 280 m
+        // along the south (https://en.wikipedia.org/wiki/Temple_Mount, checked 18 October 2026): longer north-south.
+        // Al-Aqsa stands on its south wall (https://en.wikipedia.org/wiki/Al-Aqsa_Mosque, checked 18 October 2026).
+        var haram = placed.Single(p => p.Id == "jerusalem" && p.Kind == "haram");
+        var aqsa = placed.Single(p => p.Id == "jerusalem" && p.Kind == "al_aqsa");
+        Assert.Greater(haram.D, 1.4f * haram.W, "the Haram runs north-south, about 1.6 times as long as it is wide");
+        Assert.Less(aqsa.C.y - 0.5f * aqsa.D, haram.C.y - 0.5f * haram.D + 0.1f * haram.D, "Al-Aqsa stands at the Haram's south end");
+        Assert.Greater(aqsa.W, aqsa.D, "Al-Aqsa runs across the south end, not down it");
     }
 
     /// <summary>No building or landmark stands on a railway or a road (their corridors, RouteLayer.Corridors, and the units'
@@ -174,7 +193,19 @@ public class TownCensusTests
             bool building = p.Kind == "building" || p.Kind == "wing";
             float reach = building ? 0.5f * Mathf.Sqrt(p.W * p.W + p.D * p.D) : 0.5f * Mathf.Min(p.W, p.D);
             if (p.Kind == "wing") reach = 0.5f * Mathf.Min(p.W, p.D);   // inside its block's plot, which was checked whole
-            if (g.OnRoute(p.C, reach)) bad.Add($"{p.Id} {p.Kind} on a route at {p.C}");
+            // The Haram, the Dome of the Rock and Al-Aqsa (#319): the roads' traced lines still run inside the Old City's
+            // walls as corridors (RouteLayer.Corridors), but no road is drawn there (RouteLayer.Drawn cuts every road and
+            // the railway at the walls), and the real roads ran outside the real walls. So these three must stand wholly
+            // inside the walls, where no ribbon is drawn, and off every unit's clearing; other corridors do not move them.
+            bool oldCitySanctuary = p.Id == "jerusalem" && (p.Kind == "haram" || p.Kind == "dome_of_the_rock" || p.Kind == "al_aqsa");
+            if (oldCitySanctuary)
+            {
+                var (oc, half) = SettlementKits.OldCityWalls(map.Frame);
+                if (Mathf.Abs(p.C.x - oc.x) + 0.5f * p.W > half || Mathf.Abs(p.C.y - oc.y) + 0.5f * p.D > half) bad.Add($"{p.Id} {p.Kind} outside the Old City's walls at {p.C}");
+                foreach (var (cc, cr) in map.UnitClearings)
+                    if (Mathf.Abs(cc.x - p.C.x) < 0.5f * p.W + cr && Mathf.Abs(cc.y - p.C.y) < 0.5f * p.D + cr) bad.Add($"{p.Id} {p.Kind} on a unit's clearing at {cc}");
+            }
+            else if (g.OnRoute(p.C, reach)) bad.Add($"{p.Id} {p.Kind} on a route at {p.C}");
             if (g.Water(p.C.x, p.C.y)) bad.Add($"{p.Id} {p.Kind} in the sea at {p.C}");
             if (!building) continue;
             float a = p.Yaw * Mathf.Deg2Rad, ca = Mathf.Cos(a), sa = Mathf.Sin(a);
@@ -348,6 +379,34 @@ public class TownCensusTests
     /// City"): the median block's longer side in real metres (21.9: 1.67 times main's), the street palms (26) and the
     /// height spread (0.31).</summary>
     const float TelAvivMedianWidthM = 20.5f, TelAvivHeightSpread = 0.28f; const int TelAvivPalms = 23;
+
+    /// <summary>#658 (follow-up to #652): Tel Aviv's plaster is promo 03's warm cream, not a lime white. Its mean wall is
+    /// red-led (red over green by <see cref="CreamRedOverGreen"/>, red over blue by <see cref="CreamRedOverBlue"/>; main's
+    /// white was neutral), yet the White City stays white against Jaffa's sandstone: lighter than Jaffa's walls by
+    /// <see cref="WhiteOverJaffa"/> and at most <see cref="CreamOfJaffasTint"/> of their red-over-blue tint. Haifa's walls
+    /// (its Hadar shares the White City's style) keep main's mean.</summary>
+    [Test]
+    public void TelAvivsPlasterIsWarmCreamAndStillWhiterThanJaffa()
+    {
+        var map = OpenMap();
+        var rows = Census(map, out _).ToDictionary(r => r.Id);
+        Color ta = rows["tel_aviv"].MeanWall, jaffa = rows["jaffa"].MeanWall, haifa = rows["haifa"].MeanWall;
+        TestContext.WriteLine($"{rows["tel_aviv"]}\n{rows["jaffa"]}\n{rows["haifa"]}\nhaifa mean wall ({haifa.r:F4}, {haifa.g:F4}, {haifa.b:F4})");
+        float Luma(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+        Assert.GreaterOrEqual(ta.r - ta.g, CreamRedOverGreen, "Tel Aviv's plaster is not red-led (a lime or neutral white)");
+        Assert.GreaterOrEqual(ta.r - ta.b, CreamRedOverBlue, "Tel Aviv's plaster is not cream");
+        Assert.GreaterOrEqual(Luma(ta) - Luma(jaffa), WhiteOverJaffa, "Tel Aviv's plaster is not clearly lighter than Jaffa's stone");
+        Assert.LessOrEqual(ta.r - ta.b, CreamOfJaffasTint * (jaffa.r - jaffa.b), "Tel Aviv's cream reads as Jaffa's sandstone");
+        Assert.AreEqual(HaifaMeanWall.r, haifa.r, 0.002f, "Haifa's walls changed (red); if deliberate, update HaifaMeanWall");
+        Assert.AreEqual(HaifaMeanWall.g, haifa.g, 0.002f, "Haifa's walls changed (green); if deliberate, update HaifaMeanWall");
+        Assert.AreEqual(HaifaMeanWall.b, haifa.b, 0.002f, "Haifa's walls changed (blue); if deliberate, update HaifaMeanWall");
+    }
+
+    /// <summary>Bands for TelAvivsPlasterIsWarmCreamAndStillWhiterThanJaffa, in census mean-wall terms. Main: Tel Aviv
+    /// (0.93, 0.93, 0.92), r - g 0.000; Jaffa (0.76, 0.69, 0.60).</summary>
+    const float CreamRedOverGreen = 0.04f, CreamRedOverBlue = 0.08f, WhiteOverJaffa = 0.12f, CreamOfJaffasTint = 0.85f;
+    /// <summary>Haifa's census mean wall on main (2927defb), which #658 must not move.</summary>
+    static readonly Color HaifaMeanWall = new Color(0.8380f, 0.7945f, 0.7255f);
 
     [Test]
     public void TheCitiesCoverTheirGround()

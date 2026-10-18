@@ -15,6 +15,8 @@ namespace Statecraft.Sim
         /// <summary>The GDD game's last day was reached (rules.yaml mvp.end, R-LOOP-004).</summary>
         public const string MvpEnded = "mvp_ended";
         public const string CoalitionCollapse = "coalition_collapse";
+        /// <summary>Money and Food were both exhausted for mvp.defeat_turns turn ends in a row (R-END-002; D-B5).</summary>
+        public const string DefeatEconomy = "defeat_economy";
     }
 
     public enum Mode { Historical, Open }
@@ -60,22 +62,29 @@ namespace Statecraft.Sim
         // GDD v0.1 state (spec 2026-10-12 section 2.2). Empty in the legacy loop, and then left out of the hash (R-LOOP-002).
         /// <summary>The cities by id (ordinal).</summary>
         public SortedDictionary<string, City> Cities = new SortedDictionary<string, City>(StringComparer.Ordinal);
-        /// <summary>Social cohesion, 0 to 1, from the cities' housing and jobs (R-CITY-005). A placeholder while D-C1 is open:
-        /// no other system reads it and nothing shows it. Hashed only when the state has cities.</summary>
-        public double Cohesion;
         /// <summary>The movable units by id.</summary>
         public SortedList<int, Unit> Units = new SortedList<int, Unit>();
         /// <summary>The groups in training by id (R-TRAIN-001). A cohort leaves when it finishes or is cancelled.</summary>
         public SortedList<int, Cohort> Cohorts = new SortedList<int, Cohort>();
         /// <summary>The designated sites being built or built, by site id (ordinal; R-SITE-001). An available site has no record.</summary>
         public SortedDictionary<string, SiteWork> Sites = new SortedDictionary<string, SiteWork>(StringComparer.Ordinal);
-        /// <summary>The next id a new unit or training cohort takes (they share it). Ids are never reused.</summary>
+        /// <summary>The city projects being built or built, by id (R-PROJ-001). A cancelled project leaves.</summary>
+        public SortedList<int, CityProject> CityProjects = new SortedList<int, CityProject>();
+        /// <summary>The next id a new unit, training cohort or city project takes (they share it). Ids are never reused.</summary>
         public int NextId;
         /// <summary>The date each completed objective was completed, by objective id (ordinal).</summary>
         public SortedDictionary<string, DateTime> Objectives = new SortedDictionary<string, DateTime>(StringComparer.Ordinal);
         /// <summary>The player's score (GDD "Objectives": bonus points). An int assumes whole-number points; the point values and
         /// the timing bonus are open decisions with the owner (D-B2, D-B6), so the type is revisited when they are set.</summary>
         public int Score;
+        /// <summary>The national Food stock (R-FOOD-001; D-C2): units of Food, one population unit's food for a month. Never below 0.</summary>
+        public int Food;
+        /// <summary>The Food the nation needed in the last turn (R-FOOD-002): its population in units, set at the start and in step 7.</summary>
+        public int FoodNeed;
+        /// <summary>The part of <see cref="FoodNeed"/> the stock could not cover in the last turn (R-FOOD-002, Q-POOL-5).</summary>
+        public int FoodUnmet;
+        /// <summary>Consecutive turn ends with Money and Food both exhausted (R-END-001, R-END-002); 0 when either was not.</summary>
+        public int ExhaustedTurns;
 
         public double TotalPopulation => Population.Values.Sum();
 
@@ -98,6 +107,7 @@ namespace Statecraft.Sim
             c.Units = new SortedList<int, Unit>(Units);
             c.Cohorts = new SortedList<int, Cohort>(Cohorts);
             c.Sites = new SortedDictionary<string, SiteWork>(Sites, StringComparer.Ordinal);
+            c.CityProjects = new SortedList<int, CityProject>(CityProjects);
             c.Objectives = new SortedDictionary<string, DateTime>(Objectives, StringComparer.Ordinal);
             return c;
         }
@@ -181,22 +191,22 @@ namespace Statecraft.Sim
                 foreach (var i in items) { Entry(); sb.Append(i); Sep(); }
                 Close(close);
             }
-            if (Cities.Count > 0)
-            {
-                Section("city", '{', '}', Cities.Values.Select(x => x.Canonical()));
-                Sep();
-                var bits = BitConverter.DoubleToInt64Bits(Cohesion == 0.0 ? 0.0 : Cohesion).ToString("X16", CultureInfo.InvariantCulture);
-                Nl(); sb.Append("coh=");
-                if (readable) sb.Append((Cohesion == 0.0 ? 0.0 : Cohesion).ToString("R", CultureInfo.InvariantCulture)).Append(" [").Append(bits).Append(']');
-                else sb.Append(bits);
-            }
+            if (Cities.Count > 0) Section("city", '{', '}', Cities.Values.Select(x => x.Canonical(readable)));
             if (Units.Count > 0) Section("units", '[', ']', Units.Values.Select(x => x.Canonical()));
             if (Cohorts.Count > 0) Section("train", '[', ']', Cohorts.Values.Select(x => x.Canonical()));
             if (Sites.Count > 0) Section("site", '{', '}', Sites.Values.Select(x => x.Canonical()));
+            if (CityProjects.Count > 0) Section("cproj", '[', ']', CityProjects.Values.Select(x => x.Canonical()));
             if (NextId != 0) { Sep(); Nl(); sb.Append("next=").Append(NextId.ToString(CultureInfo.InvariantCulture)); }
             if (Objectives.Count > 0)
                 Section("obj", '{', '}', Objectives.Select(kv => kv.Key + "=" + kv.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
             if (Score != 0) { Sep(); Nl(); sb.Append("score=").Append(Score.ToString(CultureInfo.InvariantCulture)); }
+            if (Food != 0 || FoodNeed != 0 || FoodUnmet != 0)
+            {
+                Sep(); Nl();
+                sb.Append("food=").Append(Food.ToString(CultureInfo.InvariantCulture)).Append(',').Append(FoodNeed.ToString(CultureInfo.InvariantCulture))
+                  .Append(',').Append(FoodUnmet.ToString(CultureInfo.InvariantCulture));
+            }
+            if (ExhaustedTurns != 0) { Sep(); Nl(); sb.Append("exhausted=").Append(ExhaustedTurns.ToString(CultureInfo.InvariantCulture)); }
             return sb.ToString();
         }
     }

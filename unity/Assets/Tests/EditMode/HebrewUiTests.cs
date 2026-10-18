@@ -122,13 +122,13 @@ public class HebrewUiTests
     }
 
     /// <summary>In Hebrew each text takes its paragraph direction from its own words: the Hebrew strings right to left, the
-    /// English date and the numbers left to right (so "15 May 1948" is not reordered), and a text that changes follows.</summary>
+    /// numbers left to right (so "1948" is not reordered), the date in Hebrew right to left (#687), and a text that changes follows.</summary>
     [Test]
     public void InHebrewEachTextTakesItsDirectionFromItsOwnWords()
     {
         var game = Boot(UiLanguage.Hebrew);
         Assert.AreEqual(LanguageDirection.RTL, Ui.Q<Label>("turn").languageDirection, "turn: Hebrew");
-        Assert.AreEqual(LanguageDirection.LTR, Ui.Q<Label>("date").languageDirection, "the date is still English (#55)");
+        Assert.AreEqual(LanguageDirection.RTL, Ui.Q<Label>("date").languageDirection, "the date is in Hebrew (#687)");
         Assert.AreEqual(LanguageDirection.LTR, Ui.Q<Label>("year").languageDirection, "digits alone");
         foreach (var t in Ui.Query<TextElement>().ToList().Where(t => !t.ClassListContains("start-he")))
             Assert.AreEqual(UiDirection.RightToLeft(t.text) ? LanguageDirection.RTL : LanguageDirection.LTR, t.languageDirection, $"'{t.name}': {t.text}");
@@ -141,7 +141,7 @@ public class HebrewUiTests
         // After a turn the texts the turn rewrote keep the direction of their new words.
         game.Bridge!.EndTurn();
         Assert.AreEqual(LanguageDirection.RTL, turn.languageDirection, turn.text);
-        Assert.AreEqual(LanguageDirection.LTR, Ui.Q<Label>("date").languageDirection, Ui.Q<Label>("date").text);
+        Assert.AreEqual(LanguageDirection.RTL, Ui.Q<Label>("date").languageDirection, Ui.Q<Label>("date").text);
     }
 
     /// <summary>Many texts a presenter builds after boot get their words before they are on the panel (new Label(text)), so
@@ -215,13 +215,16 @@ public class HebrewUiTests
         ("loading", "boot.loading"),
         ("meter-treasury/meter-name", "hud.caption.treasury"), ("meter-immigration/meter-name", "hud.caption.immigration"),
         ("meter-security/meter-name", "hud.caption.security"), ("meter-support/meter-name", "hud.caption.support"),
-        ("meter-standing/meter-name", "hud.caption.standing"), ("meter-fx/meter-name", "hud.caption.fx"),
+        ("meter-cohesion/meter-name", "hud.caption.cohesion"), ("meter-standing/meter-name", "hud.caption.standing"), ("meter-fx/meter-name", "hud.caption.fx"),
         ("nav-cabinet", "hud.nav.cabinet"), ("nav-budget", "hud.nav.budget"), ("nav-defence", "hud.nav.defence"),
         ("nav-why", "hud.nav.why"), ("new-game", "hud.new_game"), ("end-turn", "hud.end_turn"),
         ("event-draft", "event.draft"),
         ("budget-screen-title", "budget.title"), ("budget-reset", "budget.reset"), ("budget-submit", "budget.submit"),
         ("defence-screen-title", "defence.title"), ("de-escalate", "defence.lower"), ("escalate", "defence.raise"),
         ("why-screen-title", "why.title"),
+        ("nav-settings", "hud.nav.settings"), ("settings-screen-title", "settings.title"), ("settings-tiltshift-label", "settings.tiltshift"),
+        ("settings-quality-label", "settings.quality"), ("settings-quality-auto", "settings.quality.auto"),
+        ("settings-quality-high", "settings.quality.high"), ("settings-quality-low", "settings.quality.low"),
         ("start-source", "start.source"), ("start-recording-credit", "start.recording_credit"),
         ("start-continue", "start.continue"), ("start-new-game", "start.new_game"),
     };
@@ -296,6 +299,34 @@ public class HebrewUiTests
         }
     }
 
+    /// <summary>#880: in Hebrew every map name pill shows its row's name_he, and its English name where the row has none (a
+    /// 1948 locality such as Na'ana); an English restart puts the English names back.</summary>
+    [Test]
+    public void InHebrewEachMapPillShowsItsHebrewNameWhereTheRowHasOne()
+    {
+        EditorSceneManager.OpenScene("Assets/Map.unity", OpenSceneMode.Single);
+        var map = Object.FindFirstObjectByType<MapScene>();
+        map.Build(Inputs.Map);
+        var game = Object.FindFirstObjectByType<GameRoot>();
+        game.Store = new SaveStore(saveDir);
+        game.Language = UiLanguage.Hebrew;
+        game.Begin(Inputs, 0);
+        Assert.AreEqual("נהלל", Ui.Q<Label>("label-nahalal").text);
+        Assert.AreEqual("תל אביב", Ui.Q<Label>("label-tel_aviv").text);
+        Assert.AreEqual("נשר", Ui.Q<Label>("label-nesher").text, "a 1948 locality with a name_he");
+        Assert.AreEqual("Na'ana", Ui.Q<Label>("label-naana").text, "no name_he: the English name stays");
+        foreach (var s in map.Settlements)
+            Assert.AreEqual(string.IsNullOrWhiteSpace(s.NameHe) ? s.Name : s.NameHe, Ui.Q<Label>("label-" + s.Id).text, s.Id);
+        foreach (var p in map.Localities)
+            Assert.AreEqual(string.IsNullOrWhiteSpace(p.NameHe) ? p.Settlement.Name : p.NameHe, Ui.Q<Label>("label-" + p.Settlement.Id).text, p.Settlement.Id);
+
+        game.Language = UiLanguage.English;
+        game.Begin(Inputs, 0);
+        Assert.AreEqual("Nahalal", Ui.Q<Label>("label-nahalal").text);
+        foreach (var s in map.Settlements) Assert.AreEqual(s.Name, Ui.Q<Label>("label-" + s.Id).text, $"after an English restart: {s.Id}");
+        foreach (var p in map.Localities) Assert.AreEqual(p.Settlement.Name, Ui.Q<Label>("label-" + p.Settlement.Id).text, $"after an English restart: {p.Settlement.Id}");
+    }
+
     /// <summary>The loading line is in the UI's language from the first frame, before Begin, in the Hebrew face and right to
     /// left; a boot failure keeps both. English keeps its line, its face and no direction.</summary>
     [Test]
@@ -343,7 +374,7 @@ public class HebrewUiTests
             _ = boot.BootAsync(() => throw new IOException("Could not find file '/Users/someone/Statecraft Israel.app/Contents/Resources/Data/StreamingAssets/map/heightmap.json'."));
             if (failFirst) game.Started();
             var t = language == UiLanguage.Hebrew ? He : En;
-            Assert.AreEqual(t.Format("boot.failed", "Could not find file 'heightmap.json'"), Ui.Q<Label>("loading").text, $"{language}, {order}");
+            Assert.AreEqual(t.Format("boot.failed", t["boot.reason_other"]), Ui.Q<Label>("loading").text, $"{language}, {order}");   // #637
             Assert.AreEqual(language == UiLanguage.Hebrew, Ui.Q("root").ClassListContains(UiLanguage.HebrewClass), $"{language}, {order}: the face");
         }
     }
@@ -444,8 +475,12 @@ public class HebrewUiTests
             }
             Assert.LessOrEqual(list.contentContainer.layout.width, room + 0.5f, $"{language} {width}: the rows scroll sideways");
             // The control: without the wrapping class the long Hebrew row is wider than the screen at 1920 (so this test can fail).
+            // Its own text no longer is since its date turned Hebrew (#701, "10 במרץ 1949" is shorter than "10 March 1949"),
+            // so the control triples the longest office name: the class, not one string's width, is what is checked.
             if (language == UiLanguage.Hebrew && width == 1920)
             {
+                var longest = (Label)rows.Select(r => r[0]).OrderByDescending(x => ((Label)x).text.Length).First();
+                longest.text = string.Join(" ", Enumerable.Repeat(longest.text, 3));
                 foreach (var row in rows) row[0].RemoveFromClassList("budget-office");
                 for (int i = 0; i < 4; i++) yield return null;
                 Assert.IsTrue(rows.Any(r => r.layout.width > room + 0.5f || r.Children().Any(x => x.layout.xMin < -0.5f || x.layout.xMax > r.layout.width + 0.5f)),

@@ -234,6 +234,33 @@ public class BudgetScreenTests
         Assert.IsFalse(Cabinet.Lineup(C, g.State).Any(x => x.Office.Id == "education_minister"));
     }
 
+    /// <summary>#701: in the Hebrew UI the ministry's start date names its month in Hebrew (date.*).</summary>
+    [Test]
+    public void InHebrewTheMinistrysStartIsAHebrewDate()
+    {
+        var he = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.StringsHebrew).text, "strings.he.yaml");
+        using var ui = new UiTestKit();
+        new BudgetPresenter(ui.Root, new SimBridge(GameSession.New(C, GoldenRun.Seed, Mode.Historical), he), he);
+        StringAssert.EndsWith("(אין משרד עד 10 במרץ 1949)", ui.Q<Label>("budget-education_minister-name").text);
+    }
+
+    [Test]
+    public void InHebrewTheRowsAndVoteUseTheContentsHebrewNames()
+    {
+        var he = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.StringsHebrew).text, "strings.he.yaml");
+        var c = ContentLoader.Load(Paths.Content);
+        c.Rules.BudgetStart["rationing_minister"] = 0;       // expose the non-budgeted fallback row through the real presenter
+        var g = GameSession.New(c, GoldenRun.Seed, Mode.Historical);
+        while (g.State.Date < new System.DateTime(1950, 12, 1)) g.Step(HistoricalAI.Commands(c, g.State));
+        using var ui = new UiTestKit();
+        new BudgetPresenter(ui.Root, new SimBridge(g, he), he);
+        Assert.AreEqual("שרת העבודה (גולדה מאיר)", ui.Q<Label>("budget-labour_minister-name").text, "the feminine title for her");
+        var rationing = c.Offices.Single(o => o.Id == "rationing_minister");
+        Assert.AreEqual("", rationing.TitleHe);
+        Assert.AreEqual(rationing.Title + " (פנחס לבון)", ui.Q<Label>("budget-rationing_minister-name").text, "only the missing office title falls back");
+        StringAssert.Contains(Offices.Legislature(c, g.State.Date)!.BodyHe, ui.Q<Label>("budget-vote").text);
+    }
+
     /// <summary>Playtest 1, item 6: a vacant ministry reads "(vacant)", as on the Cabinet screen, never "(-)".</summary>
     [Test]
     public void AVacantMinistryReadsVacant()

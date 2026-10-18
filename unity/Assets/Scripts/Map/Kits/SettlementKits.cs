@@ -105,8 +105,16 @@ namespace Statecraft.Game.Map.Kits
             public List<(string name, Mesh mesh)> Tiles = new List<(string, Mesh)>();
             public List<(Vector2 centre, float radius, string id)> Claimed = new List<(Vector2, float, string)>();
             public int LocalityBuildings, Camps, Tents;
+            /// <summary>Kibbutz dining halls and farm sheds built (#32), the game settlements' and the localities' together.</summary>
+            public int KibbutzHalls, FarmSheds;
             /// <summary>Landmarks each game settlement built (SettlementKits.Landmarks.cs: a city's own, else its archetype's).</summary>
             public Dictionary<string, int> TownLandmarks = new Dictionary<string, int>();
+            /// <summary>Every building's model (issue #659), towns and localities, in placement order.</summary>
+            public List<ModelInstance> Models = new List<ModelInstance>();
+            /// <summary>Issue #659 (owner ruling on #700: "Models up close only"): each town's and tile's close mesh, its kit
+            /// mesh without the buildings and with the models' plinths (KitMesh.ToCloseMesh), by the kit mesh's name; none
+            /// where nothing would be left.</summary>
+            public Dictionary<string, Mesh> Close = new Dictionary<string, Mesh>();
         }
 
         /// <summary>Side of the square tiles the localities' and camps' buildings are merged into (the trees' tile size).</summary>
@@ -117,6 +125,18 @@ namespace Statecraft.Game.Map.Kits
         /// into the ground left free. Seeded: the same inputs draw the same map.</summary>
         public static Result Build(IReadOnlyList<Settlement> towns, IReadOnlyList<Settlement> localities, IReadOnlyList<Localities.Area> camps,
             KitGround ground, Dictionary<string, Bounds[]>? columns = null)
+        {
+            kibbutzHalls = farmSheds = 0;
+            var result = new Result();
+            models = result.Models; places = new Dictionary<string, Settlement>(); onceGiven = new HashSet<string>();
+            foreach (var s in towns) places[s.Id] = s;
+            foreach (var s in localities) places[s.Id] = s;
+            try { return Build(towns, localities, camps, ground, columns, result); }
+            finally { models = null; places = null; onceGiven = null; }
+        }
+
+        static Result Build(IReadOnlyList<Settlement> towns, IReadOnlyList<Settlement> localities, IReadOnlyList<Localities.Area> camps,
+            KitGround ground, Dictionary<string, Bounds[]>? columns, Result result)
         {
             var merged = new HashSet<string>();
             foreach (var s in localities) merged.Add(s.Id);
@@ -130,7 +150,6 @@ namespace Statecraft.Game.Map.Kits
                 centres[s.Id] = new Vector2(w.x, w.z);
                 ground.Footprints.Add((centres[s.Id], FootprintRadiusM(s, ground.HexSizeM), s.Id));
             }
-            var result = new Result();
             var tiles = new SortedDictionary<(int, int), KitMesh>();
             KitMesh Tile(Vector2 p)
             {
@@ -195,12 +214,18 @@ namespace Statecraft.Game.Map.Kits
                     continue;
                 }
                 var km = townMeshes[s.Id];
-                int n = landmarks[s.Id] + PlaceHouses(s, centres[s.Id], ground, km, lots, ref rnd, merged, out var scatter, out var palms);   // towns round 2: plot lattices
+                // A Negev lookout's buildings stand in its walled yard, a landmark (SettlementKits.Outpost.cs, #32): no houses round it.
+                System.Func<int>? scatter = null, palms = null;
+                int n = landmarks[s.Id] + (NegevOutpost(s) ? 0
+                    : PlaceHouses(s, centres[s.Id], ground, km, lots, ref rnd, merged, out scatter, out palms));   // towns round 2: plot lattices
                 gameTowns.Add((s, km, n, scatter, palms));
             }
+            // The dune coasts' extra sand yields to the places' own ground (BeachBands, option (c)); a camp is not a place, so
+            // its tents keep off that sand instead.
+            var reaches = camps.Count > 0 ? BeachBands.Reaches(order, ground) : new List<(Vector2, float)>();
             foreach (var area in camps)
             {
-                var (c, t) = Encampments(area, ground, lots, Tile);
+                var (c, t) = Encampments(area, ground, lots, Tile, reaches);
                 result.Camps += c; result.Tents += t;
             }
             // Last, the small towns' fallback houses (#317), largest place first: after every place's own houses and the camps,
@@ -214,7 +239,9 @@ namespace Statecraft.Game.Map.Kits
             {
                 var (s, km, _, _, _) = gameTowns[i];
                 if (columns != null && km.VertexCount > 0) columns[s.Id] = km.Columns();
-                result.Towns.Add((s, km.ToMesh(s.Id + "_kit"), totals[i]));
+                var mesh = km.ToMesh(s.Id + "_kit");
+                if (km.ToCloseMesh(s.Id + "_close") is Mesh close) result.Close[mesh.name] = close;
+                result.Towns.Add((s, mesh, totals[i]));
             }
             // A locality's columns, from its own vertices in its tile (read before ToMesh drops the CPU copy).
             if (columns != null)
@@ -224,8 +251,14 @@ namespace Statecraft.Game.Map.Kits
                     foreach (var (km, from, to) in kv.Value) km.Positions(from, to, pts);
                     if (pts.Count > 0) columns[kv.Key] = KitMesh.Columns(pts);
                 }
-            foreach (var kv in tiles) result.Tiles.Add(($"Localities {kv.Key.Item1},{kv.Key.Item2}", kv.Value.ToMesh($"localities_{kv.Key.Item1}_{kv.Key.Item2}")));
+            foreach (var kv in tiles)
+            {
+                var mesh = kv.Value.ToMesh($"localities_{kv.Key.Item1}_{kv.Key.Item2}");
+                if (kv.Value.ToCloseMesh(mesh.name + "_close") is Mesh close) result.Close[mesh.name] = close;
+                result.Tiles.Add(($"Localities {kv.Key.Item1},{kv.Key.Item2}", mesh));
+            }
             result.Claimed = lots.List.ConvertAll(l => (centre: l.c, radius: l.r, id: l.id));
+            result.KibbutzHalls = kibbutzHalls; result.FarmSheds = farmSheds;
             return result;
         }
 
@@ -310,9 +343,9 @@ namespace Statecraft.Game.Map.Kits
         /// <summary>A landmark's spot (review N2): the dry spot nearest <paramref name="want"/> (rings out to four radii) that no
         /// lot of any town already holds; claimed for <paramref name="owner"/>. False, and nothing claimed, when there is none:
         /// the landmark is then left out rather than overlapping a bigger neighbour.</summary>
-        static bool Claim(Lots lots, Vector2 want, float r, string owner, KitGround ground, out Vector2 at)
+        static bool Claim(Lots lots, Vector2 want, float r, string owner, KitGround ground, out Vector2 at, int rings = 8)
         {
-            for (int ring = 0; ring <= 8; ring++)
+            for (int ring = 0; ring <= rings; ring++)
             {
                 int around = ring == 0 ? 1 : 8 * ring;
                 for (int k = 0; k < around; k++)
@@ -344,8 +377,11 @@ namespace Statecraft.Game.Map.Kits
             OldHouse,
             /// <summary>An Arab town's or village's stone or mud-brick house (100x).</summary>
             Village,
-            /// <summary>A moshava's, kibbutz's or moshav's red-roofed house (100x).</summary>
+            /// <summary>A moshava's or moshav's red-roofed house (100x).</summary>
             Moshava,
+            /// <summary>A kibbutz (#32): members' houses in rows, the dining hall at the heart, farm sheds in the farm yard (100x;
+            /// the moshava's plot lattice, <see cref="KibbutzPart"/>).</summary>
+            Kibbutz,
             /// <summary>A Templer house of Haifa's German Colony: stone, red roof (100x; placed along its avenue, not on a lattice).</summary>
             Templer,
         }
@@ -403,7 +439,7 @@ namespace Statecraft.Game.Map.Kits
                 default:
                     return s.Type == "town" && KitPopulation.Of(s.Id) >= LargeMoshava
                         ? new List<Lattice> { new Lattice(Style.TownBlock, yaw, 0), new Lattice(Style.Moshava, yaw, 1) }
-                        : new List<Lattice> { new Lattice(Style.Moshava, yaw, 0) };
+                        : new List<Lattice> { new Lattice(s.Type == "kibbutz" ? Style.Kibbutz : Style.Moshava, yaw, 0) };
             }
         }
 
@@ -529,6 +565,8 @@ namespace Statecraft.Game.Map.Kits
                 var spec = Pick(L.Style, t, ref rnd, g.scale);
                 // Inside Jerusalem's walls, one or two storeys: the walls and the Dome of the Rock stand above the roofs.
                 if (s.Id == "jerusalem" && L.Style == Style.OldHouse && spec.storeys > 2) { spec.storeys = 2; spec.h = 2f * 3.3f * g.scale; }
+                // A kibbutz (#32): the farm yard's plots hold sheds.
+                if (L.Style == Style.Kibbutz) spec = KibbutzPlot(s, p0 - centre, t, spec, g.scale, 1f);
                 float yaw = L.Yaw + (g.jitter > 0f ? rnd.Range(-4f, 4f) : 0f);
                 ulong detail = rnd.Next();
                 if (!build) continue;
@@ -537,6 +575,14 @@ namespace Statecraft.Game.Map.Kits
                 // The cheap tests first (the boot budget): the cell and the quarter, then the terrain samples.
                 if (!ground.Inside(p.x, p.y) || !Mine(p) || !Allows(s, L, p, t, ground) || ground.Water(p.x, p.y)) continue;
                 if (!Fit(L, p, yaw, t, spec, L.Group, out var b, out var q)) continue;
+                // A moshav (#32): the farmstead turns its long side along the ring street (its jitter kept). The lot is a
+                // circle, so only the footprint's water and beach tests (they turn with the yaw) run again.
+                if (s.Type == "moshav")
+                {
+                    yaw += RingYaw(q - centre) - L.Yaw;
+                    if (CornerInWater(q, yaw, b.w, b.d, ground)) continue;
+                    if (shore && NearSea(q, yaw, b.w + 2f * BeachSetbackM, b.d + 2f * BeachSetbackM, ground)) continue;
+                }
                 lots.Add(new Lot { c = q, r = b.lotR, id = s.Id, group = L.Group });
                 var drnd = new KitRandom(detail);
                 Emit(s.Id, L.Style, q, yaw, b, t, ground, km, ref drnd);
@@ -598,9 +644,12 @@ namespace Statecraft.Game.Map.Kits
                     for (int i = 0; i < ScatterTries; i++)
                     {
                         float r = reach * Mathf.Sqrt(srnd.Value()), ang = srnd.Range(0f, 2f * Mathf.PI);
-                        var b = Pick(arch, r / R, ref srnd, m);
+                        var b = Pick(arch, r / R, ref srnd, m, s.Type == "kibbutz");
                         b.lotR = 0.5f * Mathf.Sqrt(b.w * b.w + b.d * b.d);   // the whole footprint, as a plot's (round 1's lot let a corner reach a road)
                         float yaw = arch == Archetype.Moshava || arch == Archetype.WhiteCity ? GridYaw(s.Id) + srnd.Range(-4f, 4f) : srnd.Range(0f, 90f);
+                        // A moshav (#32): along the ring street, as its lattice's farmsteads (Nahalal's lattice places fewer than
+                        // SmallTownFloor, so its fallback runs; MoshavKitTests checks every house it places).
+                        if (s.Type == "moshav") yaw += RingYaw(new Vector2(Mathf.Cos(ang), Mathf.Sin(ang))) - GridYaw(s.Id);
                         spots.Add((r, i, centre + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * r, yaw, b, srnd.Next()));
                     }
                     spots.Sort((x, y) => x.r != y.r ? x.r.CompareTo(y.r) : x.i.CompareTo(y.i));
@@ -620,6 +669,7 @@ namespace Statecraft.Game.Map.Kits
                     {
                         if (!site[k]) continue;
                         var (r, _, p, yaw, full, detail) = spots[k];
+                        if (s.Type == "kibbutz") full = KibbutzPlot(s, p - centre, r / R, full, m, 1f);
                         var b = Shrink(full, shrink);
                         if (!lots.Free(p, b.lotR) || ground.OnRoute(p, b.lotR)) continue;
                         if (ground.Slope(p.x, p.y, b.w) > (hillTown ? 0.6f : 0.35f)) continue;
@@ -628,7 +678,7 @@ namespace Statecraft.Game.Map.Kits
                         if (shore && NearSea(p, yaw, b.w + 2f * BeachSetbackM, b.d + 2f * BeachSetbackM, ground)) continue;
                         lots.Add(new Lot { c = p, r = b.lotR, id = s.Id });
                         var drnd = new KitRandom(detail);
-                        var wall = Emit(arch, p, yaw, b, ground, km, ref drnd);
+                        var wall = Emit(s.Id, arch, p, yaw, b, ground, km, ref drnd);
                         Record(s.Id, "building", p, yaw, b.w, b.d, b.h, wall);
                         added++;
                     }
@@ -657,11 +707,12 @@ namespace Statecraft.Game.Map.Kits
         };
 
         static Spec Shrink(Spec b, float k) =>
-            k >= 1f ? b : new Spec { w = b.w * k, d = b.d * k, h = b.h, storeys = b.storeys, lotR = b.lotR * k };
+            k >= 1f ? b : new Spec { w = b.w * k, d = b.d * k, h = b.h, storeys = b.storeys, lotR = b.lotR * k, part = b.part };
 
 
-        /// <summary>How far (m) a new town's buildings keep back from the sea: the beach strip (promo-sea's ScBeachM, 650 m on
-        /// average) stays sand, with its palms, as in promo 03's Tel Aviv. The old towns (Jaffa, Acre, Gaza, Haifa's lower
+        /// <summary>How far (m) a new town's buildings keep back from the sea: the beach strip (ScShore's ScBeachM, 900 m on
+        /// average; on the dune coasts the extra width yields to a town's own ground, terrain_bake.py's beach_keep) stays
+        /// sand, with its palms, as in promo 03's Tel Aviv. The old towns (Jaffa, Acre, Gaza, Haifa's lower
         /// town by the port) meet the water.</summary>
         const float BeachSetbackM = 700f;
 
@@ -711,7 +762,7 @@ namespace Statecraft.Game.Map.Kits
         /// shore; the others get a seeded angle).</summary>
         static float GridYaw(string id) => id == "tel_aviv" ? 20f : id == "haifa" ? 35f : new KitRandom(id, 7).Range(0f, 90f);
 
-        struct Spec { public float w, d, h, lotR; public int storeys; }
+        struct Spec { public float w, d, h, lotR; public int storeys; public KibbutzPart part; }
 
         /// <summary>A plot's building: real size and storeys by style and by t (0 at the heart, 1 at the footprint's edge),
         /// times the scale <paramref name="m"/>. Every size fits its lattice's plot with a street to spare.</summary>
@@ -752,6 +803,10 @@ namespace Statecraft.Game.Map.Kits
                     w = rnd.Range(8.5f, 10.5f); d = rnd.Range(7.5f, 9f);
                     storeys = 2;
                     break;
+                case Style.Kibbutz:
+                    // The moshava's three draws (size, size, storeys), so the plots are built or left as before.
+                    w = rnd.Range(0f, 1f); d = rnd.Range(0f, 1f); rnd.Chance(0.15f);
+                    return KibbutzSpec(KibbutzPart.House, w, d, m, 1f);
                 default:
                     w = rnd.Range(7.5f, 10f); d = rnd.Range(6f, 7.8f);
                     storeys = rnd.Chance(0.15f) ? 2 : 1;
@@ -775,6 +830,17 @@ namespace Statecraft.Game.Map.Kits
         {
             float m = Grid(st).scale;
             var (bottom, top) = GroundSpan(p, yaw, b.w, b.d, ground, m);
+            // Issue #659: up close the building is its model; far off, its kit parts (marked, so the close mesh leaves them out).
+            PlaceModel(id, ModelsFor(st, id, b), p, yaw, b.w, b.d, ModelHeight(st, b), bottom, top, km, m, ExactHeight(st));
+            var cut = km.CutStart();
+            EmitParts(id, st, p, yaw, b, t, ground, km, bottom, top, m, ref rnd);
+            km.CutEnd(cut);
+        }
+
+        /// <summary>A plot's kit parts and its census record.</summary>
+        static void EmitParts(string id, Style st, Vector2 p, float yaw, Spec b, float t, KitGround ground, KitMesh km, float bottom, float top, float m,
+            ref KitRandom rnd)
+        {
             float storey = 3.3f * m;
             switch (st)
             {
@@ -783,8 +849,8 @@ namespace Statecraft.Game.Map.Kits
                 case Style.TownBlock:
                 {
                     bool white = st == Style.WhiteBlock;
-                    // The White City's lime-white plaster (settlements quick wins, #31: promo 03's Tel Aviv reads white, not cream; a
-                    // few blocks keep the cream render). The moshava centres keep their warmer plaster.
+                    // Haifa's Hadar keeps the lime-white plaster (settlements quick wins, #31; a few blocks keep the cream render).
+                    // Tel Aviv has its own cream since #658 (TelAvivBlock). The moshava centres keep their warmer plaster.
                     var wall = white
                         ? (rnd.Chance(0.08f) ? Jitter(C(0.93f, 0.90f, 0.83f), ref rnd, 0.03f) : Jitter(WhitePlaster, ref rnd, 0.025f))
                         : rnd.Chance(0.3f) ? Jitter(C(0.90f, 0.84f, 0.72f), ref rnd, 0.04f) : Jitter(C(0.94f, 0.92f, 0.87f), ref rnd, 0.035f);
@@ -869,6 +935,12 @@ namespace Statecraft.Game.Map.Kits
                     Record(id, "building", p, yaw, b.w, b.d, b.h, wall);
                     break;
                 }
+                case Style.Kibbutz:
+                {
+                    var wall = KibbutzBuilding(km, p, yaw, b, bottom, top, m, ref rnd);
+                    Record(id, "building", p, yaw, b.w, b.d, b.h, wall);
+                    break;
+                }
                 case Style.Templer:
                 {
                     var wall = Jitter(C(0.86f, 0.79f, 0.66f), ref rnd, 0.04f);
@@ -948,7 +1020,8 @@ namespace Statecraft.Game.Map.Kits
                 km.Box(uc.x, uc.y, yaw, uw * 0.8f, ud * 0.8f, top + b.h - 0.3f * m, top + b.h, storey * 0.85f, wall, roof, facade, m);
         }
 
-        /// <summary>The White City's wall plaster (sRGB): lime white, a touch cool, so the warm sun leaves it white rather than cream.</summary>
+        /// <summary>Haifa's Hadar wall plaster (sRGB; Tel Aviv's is TelAvivPlaster, #658): lime white, a touch cool, so the warm
+        /// sun leaves it white rather than cream.</summary>
         static readonly Color32 WhitePlaster = C(0.94f, 0.945f, 0.94f);
 
         /// <summary>How far (real m) a White City balcony stands out from its wall.</summary>
@@ -1055,6 +1128,7 @@ namespace Statecraft.Game.Map.Kits
             if (phase == Phase.Houses) target -= landmarksBefore;
             int attempts = target * 30;
             bool ring = s.Type == "moshav";   // Nahalal's ring of farmsteads round the public buildings
+            bool kibbutz = s.Type == "kibbutz" && !mixed;   // #32: a kibbutz's houses and farm sheds
             for (int i = 0; i < attempts && placed < target; i++)
             {
                 // The disc grows slowly when the sea or a neighbour eats into it, so the count stays tied to the population.
@@ -1067,7 +1141,8 @@ namespace Statecraft.Game.Map.Kits
                 // A mixed locality (Nesher, owner ruling 2026-10-12): Arab village houses on its west side, Jewish ones on its
                 // east, side by side.
                 var a2 = mixed ? (p.x < centre.x ? Archetype.ArabTown : Archetype.Moshava) : arch;
-                var b = Pick(a2, t, ref rnd, m);
+                var b = Pick(a2, t, ref rnd, m, kibbutz);
+                if (kibbutz) b = KibbutzPlot(s, p - centre, t, b, m, LocalityLotK);
                 if (!Free(p, b.lotR) || ground.OnRoute(p, b.lotR)) continue;   // off the railways and roads too
                 // A 1948 locality's house (only localities build houses with no ignoreCellsOf) keeps off the grid's edge midpoints.
                 if (phase == Phase.Houses && ignoreCellsOf == null && ground.OnGridMark(p, b.lotR)) continue;
@@ -1078,7 +1153,7 @@ namespace Statecraft.Game.Map.Kits
                     ? GridYaw(s.Id) + (rnd.Chance(0.15f) ? 90f : 0f) + rnd.Range(-4f, 4f)
                     : rnd.Range(0f, 90f);
                 lots.Add(new Lot { c = p, r = b.lotR, id = s.Id });
-                Emit(a2, p, yaw, b, ground, km, ref rnd);
+                Emit(s.Id, a2, p, yaw, b, ground, km, ref rnd);
                 placed++;
             }
             return placed;
@@ -1115,8 +1190,9 @@ namespace Statecraft.Game.Map.Kits
                         default: return 0;
                     }
                 case Archetype.Moshava:
-                    return (Localities.LandmarkOf(s.Id) ?? Landmark.WaterTower) == Landmark.WaterTower
-                        ? WaterTower(s.Id, At(heart + new Vector2(R * 0.35f, -R * 0.2f)), ground, km, lots, towerK) : 0;
+                    return ((Localities.LandmarkOf(s.Id) ?? Landmark.WaterTower) == Landmark.WaterTower
+                        ? WaterTower(s.Id, At(heart + new Vector2(R * 0.35f, -R * 0.2f)), ground, km, lots, towerK) : 0)
+                        + (s.Type == "kibbutz" ? DiningHall(s.Id, heart, R, ground, km, lots) : 0);   // #32
                 default: return 0;
             }
         }
@@ -1173,8 +1249,12 @@ namespace Statecraft.Game.Map.Kits
             return Mathf.Clamp(Mathf.RoundToInt(area * share / lot), 6, 900);
         }
 
-        /// <summary>A locality's building, by archetype (promo-villages).</summary>
-        static Spec Pick(Archetype arch, float t, ref KitRandom rnd, float m)
+        /// <summary>A locality's lot over its building's half diagonal (Pick's moshava gap, 2.4, times 0.72).</summary>
+        const float LocalityLotK = 2.4f * 0.72f;
+
+        /// <summary>A locality's building, by archetype (promo-villages); a kibbutz's member's house when
+        /// <paramref name="kibbutz"/> (#32), from the same draws.</summary>
+        static Spec Pick(Archetype arch, float t, ref KitRandom rnd, float m, bool kibbutz = false)
         {
             float w, d; int storeys;
             switch (arch)
@@ -1198,6 +1278,7 @@ namespace Statecraft.Game.Map.Kits
                     w = rnd.Range(8f, 12f); d = rnd.Range(6.5f, 9f);
                     storeys = rnd.Chance(0.15f) ? 2 : 1;
                     if (rnd.Chance(0.06f)) { w = rnd.Range(18f, 28f); d = rnd.Range(8f, 10f); }   // a barn, a dining hall, a packing house
+                    if (kibbutz) return KibbutzSpec(KibbutzPart.House, Mathf.InverseLerp(8f, 12f, w), Mathf.InverseLerp(6.5f, 9f, d), m, LocalityLotK);
                     break;
             }
             float storeyM = 3.3f;
@@ -1211,10 +1292,24 @@ namespace Statecraft.Game.Map.Kits
 
         /// <summary>Draws a locality's building (promo-villages).</summary>
         /// <returns>The wall colour (the census records it for a town's fallback houses, #317).</returns>
-        static Color32 Emit(Archetype arch, Vector2 p, float yaw, Spec b, KitGround ground, KitMesh km, ref KitRandom rnd)
+        static Color32 Emit(string id, Archetype arch, Vector2 p, float yaw, Spec b, KitGround ground, KitMesh km, ref KitRandom rnd)
         {
             float m = KitScale.For(arch);
             var (bottom, top) = GroundSpan(p, yaw, b.w, b.d, ground, m);
+            // Issue #659: up close the building is its model; far off, its kit parts (marked, so the close mesh leaves them out).
+            // A kibbutz's plot (#820, the default branch of EmitParts) by its part; the moshava's red-roofed house by its gable.
+            bool kibbutz = b.part != KibbutzPart.None && arch != Archetype.WhiteCity && arch != Archetype.OldTown && arch != Archetype.ArabTown;
+            var from = kibbutz ? TownModels.ForKibbutz(b.part) : TownModels.ForArchetype(arch, places![id]);
+            float rise = kibbutz ? KibbutzGable(b.part) : arch == Archetype.Moshava ? 0.42f : 0f;
+            PlaceModel(id, from, p, yaw, b.w, b.d, b.h + Mathf.Min(b.w, b.d) * rise, bottom, top, km, m, exactHeight: arch == Archetype.WhiteCity);
+            var cut = km.CutStart();
+            var wall = EmitParts(arch, p, yaw, b, ground, km, bottom, top, m, ref rnd);
+            km.CutEnd(cut);
+            return wall;
+        }
+
+        static Color32 EmitParts(Archetype arch, Vector2 p, float yaw, Spec b, KitGround ground, KitMesh km, float bottom, float top, float m, ref KitRandom rnd)
+        {
             switch (arch)
             {
                 case Archetype.WhiteCity:
@@ -1268,6 +1363,7 @@ namespace Statecraft.Game.Map.Kits
                 }
                 default:
                 {
+                    if (b.part != KibbutzPart.None) return KibbutzBuilding(km, p, yaw, b, bottom, top, m, ref rnd);
                     var wall = Jitter(C(0.92f, 0.89f, 0.82f), ref rnd, 0.04f);
                     var roof = Jitter(C(0.74f, 0.31f, 0.20f), ref rnd, 0.08f);
                     km.Box(p.x, p.y, yaw, b.w, b.d, bottom, top, b.h, wall, roof, Facade.Village, m, roofed: true);
@@ -1286,7 +1382,8 @@ namespace Statecraft.Game.Map.Kits
         /// this clear of every unit token (KitGround.Tokens).</summary>
         public const float CampReach = 64f;
 
-        static (int camps, int tents) Encampments(Localities.Area area, KitGround ground, Lots lots, System.Func<Vector2, KitMesh> tile)
+        static (int camps, int tents) Encampments(Localities.Area area, KitGround ground, Lots lots, System.Func<Vector2, KitMesh> tile,
+            List<(Vector2 centre, float reach)> reaches)
         {
             if (area.Hexes.Count == 0) return (0, 0);
             float m = KitScale.Houses, hex = ground.HexSizeM;
@@ -1317,6 +1414,9 @@ namespace Statecraft.Game.Map.Kits
                         float tyaw = yaw + rnd.Range(-20f, 20f);
                         float lotR = 0.55f * Mathf.Sqrt(tw * tw + td * td);
                         if (ground.Water(p.x, p.y) || !FreeAt(lots, p, lotR) || ground.OnRoute(p, lotR) || ground.OnGridMark(p, lotR)) continue;
+                        // Nor on the dune coasts' extra sand (option (c), #685), which yields to the places but not to a camp.
+                        float sand = BeachBands.FullSandAt(ground.Frame, p.x, p.y, reaches);
+                        if (sand > BeachBands.FullSandM && ground.SeaDistance(p.x, p.y, sand + lotR) != float.MaxValue) continue;
                         lots.Add(new Lot { c = p, r = lotR, id = "camp:" + area.Subdistrict });
                         var (bottom, top) = GroundSpan(p, tyaw, tw, td, ground, m);
                         // Goat-hair cloth, a warm dark brown rather than black: at the overview a black row read as a scratch.

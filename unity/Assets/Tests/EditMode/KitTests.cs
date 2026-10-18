@@ -338,6 +338,104 @@ public class KitTests
         Assert.IsTrue(g.Water(lake.x, lake.z), "the Sea of Galilee is water");
     }
 
+    /// <summary>Sea round 3 (#388, owner 15 October 2026: "keep them off the sand"): no citrus or olive crown reaches the
+    /// beach's full sand. Read from coast.png itself (the file the terrain's ScShore draws the beach from, beach-scaled on the
+    /// dune coasts): ScShore paints full sand where the land-side distance is under 0.55 of a width that reaches 1.4 x
+    /// ScBeachM (693 m), and the distance field is 1-Lipschitz there, so a trunk at that distance plus its crown's radius
+    /// keeps the whole crown off it. One 8-bit level of coast.png (94 m) is the tolerance. ScShore draws sand only by
+    /// sea-level water (above -100 m), and coast.png also measures the distance to the rift lakes (the Sea of Galilee at
+    /// -210 m, the Dead Sea): a crown that reads near water is counted only when KitGround.SeaDistance, the sea-level test
+    /// the keep-out itself uses, finds the sea within that reach (plus the dune coasts' extra width, which coast.png takes
+    /// out of its land side), so a tree by a lake, where no sand is drawn, is not counted.</summary>
+    [Test]
+    public void NoGroveOrOliveCrownStandsOnTheBeach()
+    {
+        var map = OpenMap();
+        var coast = new Texture2D(2, 2);
+        try
+        {
+            Assert.IsTrue(coast.LoadImage(System.IO.File.ReadAllBytes(System.IO.Path.Combine(Application.dataPath, "Textures/Map/coast.png"))));
+            var g = Ground(map);
+            // The game's list (towns and 1948 localities), so the keep-out's sand yields to every place's own ground as the
+            // bake's does (option (c)).
+            var trees = Vegetation.Plant(map.Settlements.Concat(LoadLocalities(map).Places.Select(p => p.Settlement)).ToList(), g);
+            float LandM(float x, float z) => (coast.GetPixelBilinear(x / g.Width, z / g.Length).r - 0.5f) * 2f * 12000f;   // ScCoastRangeM
+            const float FullSandM = 0.55f * 1.4f * 900f, LevelM = 2f * 12000f / 255f;
+            var bad = new List<string>();
+            int citrus = 0, olives = 0, byLake = 0;
+            foreach (var (kind, m) in trees)
+            {
+                if (kind != TreeKind.Citrus && kind != TreeKind.CitrusPatch && kind != TreeKind.Olive) continue;
+                if (kind == TreeKind.Olive) olives++; else citrus++;
+                Vector3 p = m.GetColumn(3); float crown = Vegetation.CrownRadiusM(kind) * ((Vector3)m.GetColumn(0)).magnitude;
+                float d = LandM(p.x, p.z) - crown;
+                if (d >= FullSandM - LevelM) continue;
+                // The water coast.png sees, in metres: on the dune coasts its land side reads up to BeachBands.ExtraM short.
+                float reach = LandM(p.x, p.z) + BeachBands.ExtraM + 2f * LevelM;
+                if (g.SeaDistance(p.x, p.z, reach) == float.MaxValue)   // that water is a lake
+                {
+                    // A crown SeaDistance misses would land here and pass silently, so it must stand in the rift: the
+                    // Mediterranean's shore is at sea level, the Sea of Galilee's at -210 m (today 6 crowns, -70 to -214 m,
+                    // on its western shore by Tiberias).
+                    byLake++;
+                    if (g.ElevM(p.x, p.z) >= -50f) bad.Add($"{kind} at ({p.x:0}, {p.z:0}): near water SeaDistance misses, but not in the rift ({g.ElevM(p.x, p.z):0} m)");
+                    continue;
+                }
+                bad.Add($"{kind} at ({p.x:0}, {p.z:0}): crown {d:0} m from the sea's edge in coast.png");
+            }
+            TestContext.WriteLine($"{citrus} citrus and {olives} olive instances; {bad.Count} crowns on the full sand; {byLake} near a rift lake only");
+            CollectionAssert.IsEmpty(bad.Take(20), $"{bad.Count} crowns on the beach's full sand");
+            Assert.Greater(citrus, 500, "the groves keep their trees");
+        }
+        finally { Object.DestroyImmediate(coast); }
+    }
+
+    /// <summary>Option (c) (#685; owner, 16 October 2026: "Keep each settlement's own lots and fields off the sand"): the
+    /// lots the map builds (every building's, landmark's and tent's, over the 296 places, the camps and the routes), each
+    /// centre read against coast.png's full sand: ScShore paints full sand under 0.55 of a width of 0.6-1.4 x ScBeachM
+    /// (900 m), so under 297 m at any noise width and under 693 m at the widest. A lot by a lake only is not counted (no sand
+    /// is drawn there; KitGround.SeaDistance, as NoGroveOrOliveCrownStandsOnTheBeach). Main before the wide beach (adf102c9)
+    /// has 9 and 30 such lots (the old towns' waterfronts, al-Jura, Deir al-Balah and the like, which met the shore); the
+    /// wide beach before option (c) had 83 and 119, over 17 places.</summary>
+    [Test]
+    public void TheSettlementsOwnLotsStayOffTheDuneSand()
+    {
+        var (any, widest, places) = LotsOnTheSand(System.IO.Path.Combine(Application.dataPath, "Textures/Map/coast.png"));
+        TestContext.WriteLine($"lot centres on the full sand: {any} at any noise, {widest} at the widest; places: {string.Join(", ", places)}");
+        Assert.LessOrEqual(any, 9, "lots on the full sand at any noise width: main's 9");
+        Assert.LessOrEqual(widest, 30, "lots on the full sand at the widest noise: main's 30");
+    }
+
+    /// <summary>The map's lots (TheSettlementsOwnLotsStayOffTheDuneSand) whose centre is on the full sand of the coast.png at
+    /// <paramref name="coastPath"/>: at any noise width, at the widest, and the places they belong to (sorted).</summary>
+    internal static (int any, int widest, List<string> places) LotsOnTheSand(string coastPath)
+    {
+        var map = OpenMap();
+        var g = Ground(map);
+        foreach (var (line, half) in Corridors(map)) g.AddCorridor(line, half);
+        var doc = LoadLocalities(map);
+        var built = SettlementKits.Build(map.Settlements, doc.Places.Select(p => p.Settlement).ToList(), doc.Encampments, g);
+        foreach (var k in built.Towns) Object.DestroyImmediate(k.mesh);
+        foreach (var t in built.Tiles) Object.DestroyImmediate(t.mesh);
+        Assert.Greater(built.Claimed.Count, 3000, "the whole map's lots");
+        var coast = new Texture2D(2, 2);
+        try
+        {
+            Assert.IsTrue(coast.LoadImage(System.IO.File.ReadAllBytes(coastPath)));
+            int any = 0, widest = 0; var places = new SortedSet<string>(System.StringComparer.Ordinal);
+            foreach (var (c, _, id) in built.Claimed)
+            {
+                float d = (coast.GetPixelBilinear(c.x / g.Width, c.y / g.Length).r - 0.5f) * 2f * 12000f;   // ScCoastRangeM
+                if (d <= 0f || d >= 0.55f * 1.4f * 900f) continue;
+                if (g.SeaDistance(c.x, c.y, 3000f) == float.MaxValue) continue;   // a lake: no sand drawn
+                widest++; if (d < 0.55f * 0.6f * 900f) any++;
+                places.Add(id);
+            }
+            return (any, widest, places.ToList());
+        }
+        finally { Object.DestroyImmediate(coast); }
+    }
+
     /// <summary>#317: nothing stands in a lake's drawn water. Read from coast.png itself (the file the water shader samples,
     /// decoded here because the import is not CPU-readable): no tree trunk and no building's or landmark's lot centre in the
     /// rift (a lake hex, or ground below MapBuilder.LakeBelowM) lies where the drawn water covers the ground (coast below
@@ -1149,6 +1247,60 @@ public class KitTests
         TestContext.WriteLine($"gameplay03 OW1+OW2 cover: crowns {crowns.cover:0.000} (OW1 {crowns.each[0] / 20000f:0.000}, OW2 {crowns.each[1] / 30000f:0.000}; promo {PromoCrownCover.x:0.00}-{PromoCrownCover.y:0.00}), " +
                               $"crowns and shadows {withShadows.cover:0.000} (OW1 {withShadows.each[0] / 20000f:0.000}, OW2 {withShadows.each[1] / 30000f:0.000})");
         Assert.That(crowns.cover, Is.InRange(PromoCrownCover.x, PromoCrownCover.y), "hill olive crown cover against promo 03");
+    }
+
+    /// <summary>Visual gap L2 (issue #34; owner, 15 Oct 2026: crown tone "Darker, with pale sunlit tops"): promo 03's hill
+    /// olives are dark crowns with pale, sunlit tops. At gameplay03 (tilt-shift and top inset off, shadows on), the crown
+    /// pixels are those of the plan's windows OW1 and OW2 that the trees change by more than 3/255 in luma with shadows off
+    /// (TheHillOlivesCoverPromo03sShareOfTheHills: the crowns, not their cast shadows), less a pixel at every edge (a pixel
+    /// counts only if its four neighbours do), so the ground blended into a crown's rim is left out. Their median luma (the
+    /// body), their 90th percentile less the median (the sunlit top against the body) and their median saturation (#772) must
+    /// fall in promo 03's bands.</summary>
+    /// <remarks>Promo 03's numbers are from the 53 hand-marked crowns of TheHillOlivesMatchPromo03sCrownSize, each circle's
+    /// inner 0.8 of the radius (again leaving out the rim), 22,849 pixels, measured 16 Oct 2026: body (median luma) 0.302,
+    /// 90th percentile 0.484, top against body 0.181; hue median 28 degrees, saturation 0.32; lit from the upper left (the
+    /// crowns' upper halves 0.351 against lower 0.279, left 0.354 against right 0.277). Each band is the promo's value ±15%.
+    /// </remarks>
+    public static readonly Vector2 PromoCrownBodyLuma = new Vector2(0.257f, 0.347f), PromoCrownTopContrast = new Vector2(0.154f, 0.208f);
+    /// <summary>Issue #772: promo 03's crowns read grey olive, saturation 0.322; ±15% as the bands above. #697's crowns
+    /// measured 0.41 (chocolate brown) in the WebGL shot.</summary>
+    public static readonly Vector2 PromoCrownSaturation = new Vector2(0.274f, 0.370f);
+
+    [UnityTest]
+    public IEnumerator TheHillOliveCrownsAreDarkWithPaleSunlitTops()
+    {
+        var map = OpenMap();
+        yield return null;
+        var cam = Camera.main; var rig = cam.GetComponent<CameraRig>();
+        PromoPose.Gameplay03.Apply(rig, map.Frame); rig.TopInset = 0; rig.Apply();
+        RenderSample.TiltShift(false);
+        var windows = new[] { new RectInt(1530, 290, 200, 100), new RectInt(1540, 520, 200, 150) };
+        VisualToggles.Set("shadows", false);
+        VisualToggles.Set("trees", true); var on = RenderSample.Render(cam, 1920, 1080);
+        VisualToggles.Set("trees", false); var off = RenderSample.Render(cam, 1920, 1080);
+        VisualToggles.Set("trees", true); VisualToggles.Set("shadows", true);
+        var look = RenderSample.Render(cam, 1920, 1080);
+        bool Crown(int x, int row) => Mathf.Abs(RenderSample.Luma(on.At(x, row)) - RenderSample.Luma(off.At(x, row))) > 3f / 255f;
+        var luma = new List<float>(); var hue = new List<float>(); var sat = new List<float>();
+        foreach (var w in windows)
+            for (int y = w.yMin; y < w.yMax; y++)
+                for (int x = w.xMin; x < w.xMax; x++)
+                {
+                    int row = 1079 - y;   // RenderSample's row 0 is the bottom
+                    if (!(Crown(x, row) && Crown(x - 1, row) && Crown(x + 1, row) && Crown(x, row - 1) && Crown(x, row + 1))) continue;
+                    var c = look.At(x, row);
+                    luma.Add(RenderSample.Luma(c));
+                    Color.RGBToHSV(c, out float h, out float s, out _); hue.Add(h * 360f); sat.Add(s);
+                }
+        static float Pct(List<float> l, float p) { l.Sort(); return l.Count == 0 ? float.NaN : l[Mathf.Clamp(Mathf.RoundToInt(p * (l.Count - 1)), 0, l.Count - 1)]; }
+        float body = Pct(luma, 0.5f), top = Pct(luma, 0.9f), contrast = top - body;
+        TestContext.WriteLine($"gameplay03 OW1+OW2 olive crowns: {luma.Count} pixels; body (median luma) {body:0.000} (promo {PromoCrownBodyLuma.x:0.000}-{PromoCrownBodyLuma.y:0.000}), " +
+                              $"90th percentile {top:0.000}, top against body {contrast:0.000} (promo {PromoCrownTopContrast.x:0.000}-{PromoCrownTopContrast.y:0.000}); " +
+                              $"hue median {Pct(hue, 0.5f):0.0} (IQR {Pct(hue, 0.25f):0.0}-{Pct(hue, 0.75f):0.0}; promo 28.2), saturation median {Pct(sat, 0.5f):0.000} (promo {PromoCrownSaturation.x:0.000}-{PromoCrownSaturation.y:0.000})");
+        Assert.Greater(luma.Count, 2000, "enough crown pixels in the windows");
+        Assert.That(body, Is.InRange(PromoCrownBodyLuma.x, PromoCrownBodyLuma.y), "olive crown body luma against promo 03");
+        Assert.That(contrast, Is.InRange(PromoCrownTopContrast.x, PromoCrownTopContrast.y), "olive crown sunlit top against its body, against promo 03");
+        Assert.That(Pct(sat, 0.5f), Is.InRange(PromoCrownSaturation.x, PromoCrownSaturation.y), "olive crown saturation against promo 03 (grey olive, not brown)");
     }
 
     /// <summary>The WebGL checkpoint drew every palm black: a frond's tip quad collapsed to a point, its edge-based normal was

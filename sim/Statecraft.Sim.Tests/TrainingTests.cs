@@ -13,7 +13,7 @@ public class TrainingTests
     static Content Town(string facilities = "[military_camp, hakhshara]") =>
         ContentLoader.Load(Fixture.Write(Fixture.Gdd(new Dictionary<string, string>
         {
-            ["cities.yaml"] = "cities:\n  - { id: town_a, housing_capacity: 12, job_slots: 20, civilians: 10, employed: 6, facilities: " + facilities + " }\n",
+            ["cities.yaml"] = "cities:\n" + Fixture.City("town_a", 12, 20, 10, 6, facilities),
         })));
 
     static StepResult Step(Content c, GameState s, params Command[] commands) => Simulation.Step(c, s, commands);
@@ -22,7 +22,8 @@ public class TrainingTests
     [Fact]
     public void TheSliceStartsWithOneCampAndOneHakhshara()
     {
-        Assert.Equal(new[] { "military_camp", "hakhshara" }, Assert.Single(Mvp.Cities).Facilities);
+        Assert.Equal(new[] { "military_camp", "hakhshara" }, Assert.Single(Mvp.Cities, x => x.Facilities.Count > 0 && x.Id == "tel_aviv").Facilities);
+        Assert.Single(Mvp.Cities, x => x.Facilities.Count > 0);   // the twelve cities have one camp and one Hakhshara between them
         var s = Simulation.NewGame(Mvp, GoldenRun.Seed, Mode.Historical);
         Assert.Empty(s.Cohorts);
         Assert.Equal(0, s.Cities["tel_aviv"].Recruits);
@@ -38,7 +39,7 @@ public class TrainingTests
         var r = Step(c, s, new Train("town_a", "recruit", 3));
         Assert.Empty(r.Rejected);
         var city = r.State.Cities["town_a"];
-        Assert.Equal((7, 6, 0), (city.Civilians, city.Employed, city.Recruits));   // in training: neither civilians nor recruits
+        Assert.Equal((7, 7, 0), (city.Civilians, city.Employed, city.Recruits));   // in training: neither civilians nor recruits; the job default (R-CITY-009) employs the 7
         var k = Assert.Single(r.State.Cohorts.Values);
         Assert.Equal((id, "recruit", "town_a", 3, 1), (k.Id, k.Type, k.City, k.Count, k.TurnsLeft));   // 2 turns, one of them this one
         Assert.Equal(id + 1, r.State.NextId);
@@ -62,6 +63,41 @@ public class TrainingTests
         var r = Step(c, s, new Train(city, track, count));
         Assert.Equal(reason, Assert.Single(r.Rejected).Reason);
         Assert.Equal(Step(c, s).State.Hash(), r.State.Hash());   // as if the order had not been given: Attention refunded too
+    }
+
+    // R-TRAIN-001: Idle is the limit Train applies (Town A: 10 civilians, 6 employed), so the panel can ask it (#869).
+    [Fact]
+    public void IdleIsTheCountTrainAccepts()
+    {
+        var c = Town();
+        var s = Simulation.NewGame(c, 1, Mode.Historical);
+        Assert.Equal(4, Training.Idle(s.Cities["town_a"]));
+        Assert.Empty(Step(c, s, new Train("town_a", "recruit", 4)).Rejected);
+        Assert.Single(Step(c, s, new Train("town_a", "recruit", 5)).Rejected);
+    }
+
+    // R-TRAIN-001 with R-CITY-001: Available counts both tracks' Train orders and an Assign order's rise in jobs in the queue,
+    // so orders up to it are all accepted, in either order, and one group more is refused (#869: recruits and halutzim were
+    // each checked alone).
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AvailableCountsEveryTrackAndTheAssignOrder(bool assignFirst)
+    {
+        var c = Town();
+        var s = Simulation.NewGame(c, 1, Mode.Historical);
+        s.Attention = 100;   // enough for three orders: Attention is not what this test is about
+        Assert.Equal(4, Training.Available(s, "town_a", new Command[0]));
+        Assert.Equal(1, Training.Available(s, "town_a", new Command[] { new Train("town_a", "recruit", 2), new Train("town_a", "halutz", 1) }));
+        Assert.Equal(4, Training.Available(s, "town_a", new Command[] { new Train("elsewhere", "recruit", 2) }));
+        Assert.Equal(4, Training.Available(s, "town_a", new Command[] { new AssignWorkers("town_a", "job", 3) }));   // fewer jobs free no one before the turn
+        var assign = new AssignWorkers("town_a", "job", 7);
+        Assert.Equal(2, Training.Available(s, "town_a", new Command[] { assign, new Train("town_a", "recruit", 1) }));   // 10 civilians - 7 in jobs - 1 recruit
+        Command[] Orders(int halutzim) => assignFirst
+            ? new Command[] { assign, new Train("town_a", "recruit", 1), new Train("town_a", "halutz", halutzim) }
+            : new Command[] { new Train("town_a", "recruit", 1), new Train("town_a", "halutz", halutzim), assign };
+        Assert.Empty(Step(c, s, Orders(2)).Rejected);
+        Assert.Single(Step(c, s, Orders(3)).Rejected);
     }
 
     // R-TRAIN-001
@@ -129,6 +165,7 @@ public class TrainingTests
     {
         var c = Town();
         var s = Simulation.NewGame(c, 1, Mode.Historical);
+        s.Cities["town_a"] = s.Cities["town_a"].WithJobsDefault(false);   // R-TRAIN-002 alone: the job default (R-CITY-009) would refill the jobs
         var trained = Step(c, s, new Train("town_a", "halutz", 4)).State;
         var id = Assert.Single(trained.Cohorts.Keys);
         var cancelled = Step(c, trained, new CancelTraining(id));
@@ -269,8 +306,8 @@ public class TrainingTests
             ["map/settlement_hexes.yaml"] = "settlements:\n  - { id: town_a, q: 1, r: 0 }\n  - { id: town_b, q: 2, r: 1 }\n",
             ["map/settlements_1948.yaml"] = Fixture.Files["map/settlements_1948.yaml"]
                 + "  - { id: town_b, name: Town B, lon: 34.42, lat: 33.28, type: town, founded: 1900, pre_modern: false }\n",
-            ["cities.yaml"] = "cities:\n  - { id: town_a, housing_capacity: 12, job_slots: 20, civilians: 10, employed: 6, facilities: [hakhshara] }\n"
-                + "  - { id: town_b, housing_capacity: 12, job_slots: 20, civilians: 10, employed: 6, facilities: [hakhshara] }\n",
+            ["cities.yaml"] = "cities:\n" + Fixture.City("town_a", 12, 20, 10, 6, "[hakhshara]")
+                + Fixture.City("town_b", 12, 20, 10, 6, "[hakhshara]"),
         })));
         var s = Simulation.NewGame(c, 1, Mode.Historical);
         s.Attention = 10;   // two orders on the fixture's first turn

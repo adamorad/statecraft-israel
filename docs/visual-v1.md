@@ -789,6 +789,9 @@ The Deferred row "Runtime quality fallback" (review I1), sized by the DPR-2 stre
   change the URP asset. Even on WebGL it stays off under `?vprofile`, `?profile` and `?shot` (instruments that must see the
   tier as configured) and with `?nofallback`; every change logs `QUALITY level=<n> scale=<s> tiltshift=<on|off>
   p95_ms=<ms>`.
+- **The player's quality choice (#40).** Automatic in Settings is this behaviour. High (the PC tier at render scale 1.0)
+  and Low (the Mobile tier at 0.8) fix the quality: the fallback holds while one is set (`QualityFallbackDriver.Feed`),
+  and every switch starts it again from the top (`GraphicsQuality.Changed`).
 - **Presentation only:** it reads no sim state and writes only the render scale and the tilt-shift flag, so turns, hashes
   and saves cannot change. The goldens and the 5-turn smoke match with it in the build: `uv run tools/web_check.py
   unity/Builds/Web-disabled --query "golden&smoke=5"` with the three `--expect` values from `docs/determinism.md`: PASS.
@@ -1171,8 +1174,16 @@ D-C (owner-verify).
   closure the agreements' lines (`armistice_lines_1949.geojson`, D-A) and UNTS vol. 42, the Jordan-derived sides flagged
   low accuracy.
 - *Periods* (`content/map/control_hexes_1948_49.yaml`, `tools/control_bake.py`: each land hex of Mandatory Palestine takes
-  the code at its centre, per period): 15 May-11 June 1948 the 1947 sub-districts in grey (no sourced line for 15 May);
-  11 June the 9 July line; 8-18 July (the Ten Days) grey where the 9 and 18 July lines differ; 18 July the blue line;
+  the code at its centre, per period): 15 May-10 June 1948 the 9 July line, adjusted (owner decision of 16 October 2026,
+  #674, option (b); research note `control-15-may-1948.md` section 9): the other side not named; grey where the CIA's
+  "Military Situation - 18 May 1948" dashed (tenuously held) border is legible and closes on the 9 July line or the
+  frontier (the Safad-Hula loop, traced on the scan georeferenced on its graticule ticks); cut by the 1947
+  sub-districts (no new line), the 9 July Israeli areas of the Jenin (Lajjun-Zir'in, 28 May) and Jerusalem (the CIA's
+  corridor border, a single line along the road) sub-districts; in the Ramle and Acre sub-districts only the hex of the
+  place that changed hands (`contested_places`, owner ruling 2 of 16 October 2026 on #686): Yibna's (5 June) and Acre's
+  (17/18 May), so Rehovot, Rishon and Nahariya stay blue and the CIA's Rishon-Sarafand border is not drawn; the Gaza and Beersheba sub-districts without colour, the
+  hexes of their Jewish settlements whose 1948 site is sourced pinned blue (Q3); every hex within 6 km of the Old City
+  no-man's land; 11 June the 9 July line; 8-18 July (the Ten Days) grey where the 9 and 18 July lines differ; 18 July the blue line;
   24-26 July grey at Ijzim, Jaba and Ein Ghazal; 15-31 October grey where the July and October lines differ in the south
   (Yoav, Ha-Har, Beit Jibrin, al-Dawayima), 29-31 October in the Galilee (Hiram); from 31 October the green line, until the
   Egypt agreement (Operation Horev is not drawn: its fighting lay south of the scan or beyond the frontier, and no source
@@ -1190,15 +1201,16 @@ D-C (owner-verify).
   Egyptian army on 8 July, captured by Giv'ati in Operation Yoav on 19 October), where ISA 6158/1's 9 July line, about
   1.3 km away, puts it on the Israeli side (the source and the archive map disagree; recorded in the data); a pin covers
   whole periods only, so the Yoav period shows Huleiqat's hex Israeli from 15 October, four days before its capture.
-- *Drawing:* `MapRegions` draws `Control1948`'s layer from 11 June 1948: Israel Primary, the other side Secondary,
+- *Drawing:* `MapRegions` draws `Control1948`'s layer from 15 May 1948 (#674): Israel Primary, the other side Secondary,
   contested, no-man's land and zones the new Neutral style (`BorderStyle.Neutral`, the shader's third style, dashed along
   its edge every 2 km, 65% drawn: a cue that is not colour), the land beyond the frontier style none, no colour left out (no
-  band, so the edge of the sourced data is not drawn as a front). Before it the sub-districts are drawn in Neutral, since
-  blue now means the Israeli side. Colours: Primary pre-grade sRGB 0.29, 0.40, 0.56 (was 0.40, 0.50, 0.80), measured on
+  band, so the edge of the sourced data is not drawn as a front). Before a first period (none with today's data) the
+  sub-districts would be drawn in Neutral, since blue means the Israeli side. Colours: Primary pre-grade sRGB 0.29, 0.40, 0.56 (was 0.40, 0.50, 0.80), measured on
   screen at deltaE76 0.6 from 89,119,156; Neutral 0.46, 0.46, 0.44 with a pale stripe 0.98, 0.97, 0.93.
 - *Label* (`map-layer`, `MapRegions.ControlLabel`): the legend names each side before its colour, and grey as dashed:
   1948 "Held by Israel: blue · Held by Arab forces: orange-red · Contested or no-man's land: grey, dashed", with the caption
-  "Front lines, {date}, approximate (Israel State Archives)"; once a front has its agreement "Israeli side of the armistice
+  "Front lines, {date}, approximate (Israel State Archives)", from 15 May to 10 June 1948 "Front lines of 9 July 1948,
+  adjusted (Israel State Archives; CIA map of 18 May 1948)"; once a front has its agreement "Israeli side of the armistice
   line: blue · Arab side: orange-red · No-man's land or demilitarized zone: grey, dashed", with "Armistice lines: {fronts}"
   (all switched) or "Armistice lines: {fronts}; elsewhere front lines of {date}" (some), Jordan named "Jordan (low
   accuracy)" (D-A ruling 2). Dates in the UI's language (Hebrew month names). The label may take up to six lines in its
@@ -1343,7 +1355,8 @@ Review round 1 (staff review I1-I2, M1-M8) is folded in; the values below are th
   budget (0.89 / 0.13 ms in promo-sea round 1); p95 with everything on is 10 / 14 ms, under 16.7 ms.
 - **Surf** (review I2).
   - A swash line, full to `ScSwashM` 180 m and gone by 324 m.
-  - Breakers through a `ScSurfM` zone (900 m here; 1.8 km since sea round 3). They are a squared triangle wave in the
+  - Breakers through a `ScSurfM` zone (900 m here; 1.8 km since sea round 3; 2.4 km in #693; since #690's option C,
+    3.0 km on the dune coasts of `DuneCoasts.json` and 1.5 km elsewhere). They are a squared triangle wave in the
     distance from the shore, spacing `ScBreakerSpacingM` (300 m here; 450 m since sea round 3), rolling shoreward at
     `ScBreakerRate` 0.05 cycles/s (15 m/s here, a quarter pixel a frame at gameplay03 and 60 fps; 22.5 m/s, about half a
     pixel, since sea round 3).
@@ -2254,8 +2267,13 @@ blocks, village houses, red-roofed villas), Jaffa 6 → 7, Tel Aviv 8 → 7.
 - **Jerusalem's Old City is symbolic and squeezed by the roads.**
   - It is 4 km across, about 4 times the real one. The drawn 1948 roads (300 m ribbons) meet by Jaffa Gate and loop
     round the north and east, so at any readable size they cross inside the square, through gaps in the walls.
-  - Only one place in its south-east quadrant fits a platform clear of every route: 1.3 x 1.1 km, wider than long. Al-Aqsa
-    therefore stands in its south-east corner, not across its south end.
+    Since #319 the map cuts each road and the railway at the walls (`docs/routes.md`, "Jerusalem's Old City"), so none
+    runs inside them.
+  - Round 2 fitted the Haram's platform where it kept clear of every route's traced line: 1.3 x 1.1 km, wider than long,
+    with Al-Aqsa in its south-east corner, and it drew a gate wherever a road met the walls (13). Since #319 the platform
+    runs north-south (1.1 x 1.7 km, the real one's shape) against the east and south walls, Al-Aqsa stands across its
+    south end, and the walls have the seven gates open before 1948 on their real sides, the Golden Gate left sealed
+    (sources in `SettlementKits.Jerusalem`). The roads' traced lines inside the walls still keep houses off them.
   - The citadel is moved east off the drawn Hebron road.
   - The houses inside the walls are capped at two storeys, and the Dome's walls and drum are 30x high, so the walls and
     the Dome stand above the roofs.
@@ -2660,6 +2678,15 @@ wide in a 1920 frame. Main drew white boxes of two to seven storeys, about 25-30
     nothing.
   - Each claims a lot, so no tree grows through one.
 - **#507:** everything is in `tel_aviv_kit`, so a model that turns the town's kit off hides all of it.
+- **Plaster (#658, follow-up):** Tel Aviv's walls and parapets are a warm cream, `TelAvivPlaster` (0.97, 0.90, 0.87),
+  and the terrace paving (0.87, 0.80, 0.75), where they were the shared lime white (0.94, 0.945, 0.94) and (0.84, 0.81,
+  0.76). Haifa's Hadar keeps `WhitePlaster`. Census mean wall: Tel Aviv (0.93, 0.93, 0.92) to (0.96, 0.90, 0.86); Jaffa
+  (0.76, 0.69, 0.60) and Haifa unchanged. Editor render, lit plaster (85th-percentile luma in Tel Aviv's box), gameplay03:
+  (0.886, 0.824, 0.714) to (0.902, 0.820, 0.706) at blue 0.84, the same median at 0.87; promo 03's Tel Aviv reads
+  (0.969, 0.855, 0.796).
+  The review measured a first cream, blue 0.84, as too yellow against the promo's balance (red minus blue past it), so
+  blue went to 0.87. Editor, the brightest 15% of the pixels that changed in Tel Aviv's box: red minus green 0.053 on
+  main, 0.080 at both blues; red minus blue 0.156 on main, 0.198 at 0.84, 0.191 at 0.87 (promo 0.114 and 0.173).
 
 **Result** (editor census, `TownCensusTests`; main 98515c52 → branch):
 

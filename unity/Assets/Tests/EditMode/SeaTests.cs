@@ -143,7 +143,12 @@ public class SeaTests
 
     /// <summary>Rendered west of Tel Aviv: just offshore (about 120-200 m out, on the swash line: full to 180 m, gone by
     /// 324 m) is brighter than 1.2 km out (inside the turquoise shallows), which is lighter and greener than the open sea
-    /// 24 km out. The shore is found in coast.png itself.</summary>
+    /// 24 km out. The shore is found in coast.png itself. The 1.2 km sample also lies inside the breakers' zone (ScSurfM,
+    /// 1.8 km before #690, 2.4 km since), so its colour carries some crest foam, more since #690 (luma 0.70 to 0.78). It is
+    /// kept: no point past 2.4 km is sure to be in the shallows, whose edge wanders 1.7-3.5 km (ScShallowM 2.6 km, +-35%).
+    /// The foam helps both "lighter" and "greener" (the deep sea's g/b is about 0.79, so mixing in white raises it); with
+    /// the near-shore gradient it carries both even with the turquoise tint removed (issue #767), so the tint has its own
+    /// check, teal at the sample's least foam. "foam at the shore" keeps a 0.13 luma margin (0.92 against 0.78).</summary>
     [UnityTest]
     public IEnumerator ShallowsAreLighterThanTheOpenSeaAndFoamLinesTheShore()
     {
@@ -173,6 +178,22 @@ public class SeaTests
         Assert.Greater(Luma(f), Luma(s) + 0.02f, "foam at the shore");
         Assert.Greater(Luma(s), Luma(d) + 0.05f, "shallows lighter");
         Assert.Greater(s.g / s.b, d.g / d.b, "shallows greener");
+        // Issue #767: the two checks above pass with the turquoise tint removed (the near-shore gradient and the crest foam
+        // carry both). Only the tint is teal: the mid and deep sea are blue over green, and the foam is near-white. So the
+        // shallow sample is taken again at its least foam (the darkest of 8 moments through one breaker cycle, 20 s), and
+        // its green must stand over its blue.
+        rig.LookAt = shallow; rig.Apply();
+        Color calm = Color.white;
+        for (int k = 0; k < 8; k++)
+        {
+            MapShaderGlobals.PinWaterTime(100f + k * 2.5f);
+            var r = RenderSample.Render(cam, 960, 540, new[] { shallow }, px);
+            var c = r.Mean((int)px[0].x, (int)px[0].y, 1);
+            if (Luma(c) < Luma(calm)) calm = c;
+        }
+        TestContext.WriteLine($"shallow at its least foam {calm}, g - b {calm.g - calm.b:0.000}");
+        // Red with the tint at "shallow * 0.0" (StatecraftMap.hlsl ScWaterShade): g - b -0.042; green with it: +0.026.
+        Assert.Greater(calm.g, calm.b, "the shallows are teal (the turquoise tint)");
         // promo-sea (open item 3, issue #38): the open sea is the promo's muted steel blue, not a saturated navy. HSV
         // saturation before the grade: 0.91 with Task 7's ramp, 0.58 now (the grade lifts it: promo 03's sea measures 0.49).
         Color.RGBToHSV(d, out _, out float deepSat, out _);
@@ -275,6 +296,39 @@ public class SeaTests
         Assert.Greater(b.b / b.g, 0.62f, "sand, not the plain's yellow-green");
     }
 
+    /// <summary>Sea round 3 (#388, owner 15 October 2026: geographic, about 2.5-3 km, as promo 03 draws south of Jaffa): the
+    /// beach is wide on the dune coast and stays narrow under the kurkar. Rendered 2 km inland of the shore (25 texels east of
+    /// the first land texel, about 1.85 km across the coast), without the kits: at 31.90 N (south of Jaffa, off Yavne's
+    /// dunes; 31.95 N, by Rishon LeZion, is 2.3 km from Nabi Rubin, whose own ground the beach yields to under option (c))
+    /// the sample is pale sand by ASandStripLinesTheMediterraneanShore's own floors (luma over 0.72, b/g over 0.62);
+    /// at 32.15 N (Herzliya) it is not, as on main, whose 900 m beach is gone by 1.26 km at its widest. That test's third
+    /// floor (0.32 over a plain 5 km inland) is not used: 5 km inland south of Jaffa is the pale dune belt's land use, not
+    /// Tel Aviv's darker plain.</summary>
+    [UnityTest]
+    public IEnumerator TheBeachIsWideOnTheDuneCoastAndNarrowUnderTheKurkar()
+    {
+        EditorSceneManager.OpenScene("Assets/Map.unity", OpenSceneMode.Single);
+        Object.FindFirstObjectByType<MapScene>().ConfigureKits(null, null);   // the scene is not saved
+        var map = OpenMap(reopen: false);
+        yield return null;
+        var cam = Camera.main; var rig = cam.GetComponent<CameraRig>();
+        Color At(float lat)
+        {
+            var (col, row) = ShoreTexel(lat);
+            Vector3 b = TexelWorld(map, col + 1 + 25, row);
+            rig.LookAt = b; rig.Distance = 30000f; rig.Yaw = 0; rig.TopInset = 0; rig.Apply();
+            var px = new Vector2[1];
+            var r = RenderSample.Render(cam, 960, 540, new[] { b }, px);
+            return r.Mean((int)px[0].x, (int)px[0].y, 1);
+        }
+        bool Sand(Color b) => Luma(b) > 0.72f && b.b / b.g > 0.62f;
+        Color south = At(31.90f), north = At(32.15f);
+        TestContext.WriteLine($"2 km inland: 31.90 N {south} (luma {Luma(south):0.000}, b/g {south.b / south.g:0.00}); " +
+            $"32.15 N {north} (luma {Luma(north):0.000}, b/g {north.b / north.g:0.00})");
+        Assert.IsTrue(Sand(south), "the dune coast south of Jaffa: sand 2 km inland");
+        Assert.IsFalse(Sand(north), "the kurkar coast at Herzliya: no sand 2 km inland");
+    }
+
     /// <summary>The coast.png column of the first water texel west of (34.95 E, lat) and its row; row 0 = south.</summary>
     static (int col, int row) ShoreTexel(float lat)
     {
@@ -357,6 +411,252 @@ public class SeaTests
     /// share of 0.56, plan C1). The branch's median at 32.08 N is 0.67, close to the upper bound: another GPU or driver may
     /// read it a little differently.</summary>
     static readonly Vector2 LaceShare = new Vector2(0.3f, 0.7f);
+
+    /// <summary>#690: the surf's foam band reaches promo 03's band south of Jaffa. tools/coast_measure.py reads the band at
+    /// gameplay03 from the shore to the farthest foam pixel: promo 03 44 px south of Jaffa (band 25-55 px); main d031af36 20.3.
+    /// At the breaker test's pose (30 km at 960x540), with the water's clock pinned at four moments, a one-pixel line is walked
+    /// east-west from the shore out to 3 km (87 px, so about 35 m a pixel along the walk) at 31.90, 31.92, 31.94 and 31.96 N:
+    /// the latitudes coast_measure's south window (rows 690-880) covers at gameplay03, 31.89-31.97 N without the top bar's
+    /// inset and 31.90-31.98 N with it. A pixel is foam by the breaker test's rule, and the band ends at the farthest run of
+    /// 2 or more foam pixels (the breaker test's line), so a lone white pixel offshore (a boat) does not count. The mean over
+    /// the 16 walks must lie in <see cref="SurfBandSouthPx"/>, coast_measure's band. This walk reads 1.11-1.16x coast_measure
+    /// (22.5 px against 20.3 on main d031af36, 35.6 against 30.8 at 2.4 km), so the bound is a little looser than the tool's
+    /// band; the tool's own reading is in the PR. One walk's reach jumps by a whole crest spacing (about 10 px) as the outer
+    /// breaker rolls in and fades, so a single line's median over 4 moments rides on 2 of them. The northern band (6-30 px)
+    /// is not asserted on one line: the breakers' noise makes one line's reach vary along the coast (32.30 N read 27.5 px on
+    /// main 585f34ed, where coast_measure's northern window read 19.2), so it is read with coast_measure over the window's
+    /// 100 rows.</summary>
+    [UnityTest]
+    public IEnumerator TheSurfReachesPromo03sBandSouthOfJaffa()
+    {
+        var map = OpenMap();
+        yield return null;
+        VisualToggles.Set("grid", false);
+        var cam = Camera.main; var rig = cam.GetComponent<CameraRig>();
+        var log = new System.Text.StringBuilder();
+        var bands = SurfWalks(map, cam, rig, SouthWindowLats, log).Select(w => w.band).ToList();
+        float mean = (float)bands.Average();
+        TestContext.WriteLine(log.ToString());
+        TestContext.WriteLine($"mean foam band over {bands.Count} walks: {mean:0.0} px");
+        Assert.That(mean, Is.InRange(SurfBandSouthPx.x, SurfBandSouthPx.y), "south of Jaffa: the surf's foam band in promo 03's band");
+    }
+
+    /// <summary>TheSurfReachesPromo03sBandSouthOfJaffa's bounds, coast_measure's southern band for gameplay03 (#690).</summary>
+    static readonly Vector2 SurfBandSouthPx = new Vector2(25f, 55f);
+
+    /// <summary>The latitudes coast_measure's windows cover at gameplay03 (rows projected from the pose, with and without the
+    /// top bar's inset): south 31.89-31.98 N, north 32.10-32.26 N.</summary>
+    static readonly float[] SouthWindowLats = { 31.90f, 31.92f, 31.94f, 31.96f }, NorthWindowLats = { 32.12f, 32.16f, 32.20f, 32.24f };
+
+    /// <summary>Whether <see cref="SurfWalks"/> renders the far sea's texture ("seatexture": mottle, ripple and the
+    /// whitecap flecks). Off: the walks measure the surf alone (the surf terms do not read _ScSeaTexture), as the seam test
+    /// pins the texture off; a whitecap fleck is not surf (<see cref="TheSurfWalksSeeTheBreakersAndNotTheWhitecaps"/>).</summary>
+    const bool WalkSeaTexture = false;
+
+    /// <summary>#690's walk: at the breaker test's pose (30 km at 960x540) and four pinned moments, a one-pixel line from the
+    /// shore 3 km out to sea at each latitude. Per walk, the foam band (px to the end of the farthest run of 2 or more foam
+    /// pixels, the breaker test's line; a lone white pixel such as a boat does not count), the number of such lines and the
+    /// foam pixels themselves (index 0 at the shore). The far sea's texture is <see cref="WalkSeaTexture"/> unless
+    /// <paramref name="seaTexture"/> says otherwise.</summary>
+    static System.Collections.Generic.List<(int band, int lines, bool[] foam)> SurfWalks(MapScene map, Camera cam, CameraRig rig, float[] lats, System.Text.StringBuilder log, bool? seaTexture = null)
+    {
+        VisualToggles.Set("seatexture", seaTexture ?? WalkSeaTexture);
+        var walks = new System.Collections.Generic.List<(int band, int lines, bool[] foam)>();
+        foreach (var lat in lats)
+        {
+            var (col, row) = ShoreTexel(lat);
+            const float texelM = 161529f / 2048f;   // a coast.png texel east-west
+            Vector3 shore = TexelWorld(map, col, row), reach = TexelWorld(map, col - Mathf.RoundToInt(3000f / texelM), row);
+            rig.LookAt = reach; rig.Distance = 30000f; rig.Yaw = 0; rig.TopInset = 0; rig.Apply();
+            foreach (var t in new[] { 100f, 105f, 110f, 115f })
+            {
+                MapShaderGlobals.PinWaterTime(t);
+                var px = new Vector2[2];
+                var r = RenderSample.Render(cam, 960, 540, new[] { shore, reach }, px);
+                int n = Mathf.CeilToInt(Mathf.Max(Mathf.Abs(px[1].x - px[0].x), Mathf.Abs(px[1].y - px[0].y)));
+                int band = 0, run = 0, lines = 0;
+                var foamAt = new bool[n + 1];
+                var trace = new System.Text.StringBuilder();
+                for (int k = 0; k <= n + 1; k++)
+                {
+                    bool foam = false;
+                    if (k <= n)
+                    {
+                        var p = Vector2.Lerp(px[0], px[1], k / (float)n);
+                        var c = r.At(Mathf.RoundToInt(p.x), Mathf.RoundToInt(p.y));
+                        foam = Luma(c) >= 0.72f && Mathf.Max(c.r, c.g, c.b) - Mathf.Min(c.r, c.g, c.b) <= 30f / 255f;
+                        foamAt[k] = foam;
+                        trace.Append(foam ? '#' : '.');
+                    }
+                    if (foam) run++;
+                    else { if (run >= 2) { band = k; lines++; } run = 0; }   // the band ends where the farthest line of 2+ px ends
+                }
+                walks.Add((band, lines, foamAt));
+                log.AppendLine($"{lat:0.00} N t={t}: foam band {band} px of {n + 1}, {lines} lines  {trace}");
+            }
+        }
+        return walks;
+    }
+
+    /// <summary>#690 option C: the surf is wide on the dune coast south of Jaffa and narrow under the kurkar north of Tel
+    /// Aviv, as promo 03 draws it (coast_measure at gameplay03: 44 px south, 12.3 px on the northern frontage). One zone
+    /// width for the whole coast (2.4 km) read 30.8 and 25.0 px. Walked at the latitudes of coast_measure's two windows (16
+    /// walks each, <see cref="SurfWalks"/>): the north's mean band is at most <see cref="NorthToSouthMax"/> of the south's.
+    /// The evenly spaced lines ("combed stripes") are not asserted here: they are read with coast_measure's stripe_rows on
+    /// the WebGL shots, the measure #716 is defined by (a walk counts lines over 3 km, where the tool counts them in the
+    /// foam band, so a walk's count is not that measure).</summary>
+    [UnityTest]
+    public IEnumerator TheSurfIsWideOnTheDuneCoastAndNarrowUnderTheKurkar()
+    {
+        var map = OpenMap();
+        yield return null;
+        VisualToggles.Set("grid", false);
+        var cam = Camera.main; var rig = cam.GetComponent<CameraRig>();
+        var log = new System.Text.StringBuilder();
+        var south = SurfWalks(map, cam, rig, SouthWindowLats, log);
+        var north = SurfWalks(map, cam, rig, NorthWindowLats, log);
+        float s = (float)south.Average(w => w.band), n = (float)north.Average(w => w.band);
+        TestContext.WriteLine(log.ToString());
+        TestContext.WriteLine($"mean foam band: south {s:0.0} px, north {n:0.0} px (ratio {n / s:0.00})");
+        Assert.That(s, Is.InRange(SurfBandSouthPx.x, SurfBandSouthPx.y), "south of Jaffa: the surf's foam band in promo 03's band");
+        Assert.LessOrEqual(n / s, NorthToSouthMax, "the kurkar coast's surf is narrower than the dune coast's");
+    }
+
+    /// <summary>#690 option C: the surf walks measure the surf, not the far sea's whitecaps. A whitecap fleck (sea round 2:
+    /// one per 120 m cell, at a fixed spot, flickering with the mottle) stands still, where breakers roll in about 3 px every
+    /// 5 s; at 32.24 N one sat 70 px out at all 4 moments and read as a 71 px foam band. With the far sea's texture on, a
+    /// pixel <see cref="FleckFromPx"/> or more out is white at all 4 moments (the case this guards); in the walk's own render
+    /// none is, and inside that reach the walk keeps at least 80% of the foam pixels it has with the sea texture on (the
+    /// texture's ripple shifts a few pixels across the foam threshold), so the moving surf still counts.</summary>
+    [UnityTest]
+    public IEnumerator TheSurfWalksSeeTheBreakersAndNotTheWhitecaps()
+    {
+        var map = OpenMap();
+        yield return null;
+        VisualToggles.Set("grid", false);
+        var cam = Camera.main; var rig = cam.GetComponent<CameraRig>();
+        var log = new System.Text.StringBuilder();
+        var lats = new[] { 32.24f };
+        var on = SurfWalks(map, cam, rig, lats, log, seaTexture: true);
+        var walk = SurfWalks(map, cam, rig, lats, log);
+        int Still(System.Collections.Generic.List<(int band, int lines, bool[] foam)> w)
+        {
+            int n = w.Min(x => x.foam.Length), still = 0;
+            for (int k = FleckFromPx; k < n; k++) if (w.All(x => x.foam[k])) still++;
+            return still;
+        }
+        TestContext.WriteLine(log.ToString());
+        TestContext.WriteLine($"pixels {FleckFromPx}+ out white at all 4 moments: sea texture on {Still(on)}, the walk {Still(walk)}");
+        Assert.Greater(Still(on), 0, "the case: a whitecap fleck stands still out at sea with the sea texture on");
+        Assert.AreEqual(0, Still(walk), "the walk does not count the whitecaps");
+        int Surf(System.Collections.Generic.List<(int band, int lines, bool[] foam)> w) => w.Sum(x => x.foam.Take(FleckFromPx).Count(f => f));
+        TestContext.WriteLine($"foam pixels inside {FleckFromPx} px over 4 moments: sea texture on {Surf(on)}, the walk {Surf(walk)}");
+        Assert.GreaterOrEqual(Surf(walk), 0.8f * Surf(on), "the walk keeps the surf");
+        Assert.Greater(Surf(walk), 0, "the walk sees the surf");
+    }
+
+    /// <summary>TheSurfWalksSeeTheBreakersAndNotTheWhitecaps' reach: 60 px is about 2.1 km at the walk's 35 m a pixel,
+    /// past the surf under the kurkar (1.5 km, about 43 px).</summary>
+    const int FleckFromPx = 60;
+
+    /// <summary>TheSurfIsWideOnTheDuneCoastAndNarrowUnderTheKurkar's bound: promo 03's ratio is 0.28 (12.3 / 44), one width
+    /// for the whole coast read 0.81 (25.0 / 30.8).</summary>
+    const float NorthToSouthMax = 0.6f;
+
+    /// <summary>#716: the dune coast's surf is not combed into evenly spaced white lines. The measure is
+    /// tools/coast_measure.py's stripe_rows on its south window at gameplay03 (rows 690-880 every 2nd, x 380-760 of the
+    /// 1920x1080 frame): per row, the shore is the first run of 3 sand or crown pixels after 6 or more water or foam pixels
+    /// (rows without a 3-pixel sand run past it are skipped), the foam band is the 80 px before the shore from its farthest
+    /// foam pixel, and a line is a run of 2 or more foam pixels in it; stripe_rows is the share of rows with 3 or more
+    /// lines. Pixel classes as the tool's (sRGB 0-255): foam luma 0.72 or more and channels within 30, water b > r + 15,
+    /// sand luma 0.60 or more and r - b 25 or more, crown any other pixel under luma 0.40. The median over
+    /// <see cref="StripeMoments"/> pinned moments of one breaker cycle is at most <see cref="StripeRowsMax"/>, promo 03's
+    /// 0.30. Main 8df042a1 reads 0.47 here, as the tool does on MapCapture's web-tier renders (llvmpipe; #838 read 0.58 on
+    /// WebGL ?shot captures); the dune coasts' breaker chirp (StatecraftMap.hlsl, ScBreakerChirp 0.35) 0.25.</summary>
+    [UnityTest]
+    public IEnumerator TheDuneCoastsSurfIsNotCombedIntoEvenLines()
+    {
+        var map = OpenMap();
+        yield return null;
+        // The frame as gameplay03 shows it, which is what coast_measure reads: OpenMap turns the tilt-shift, kits and trees
+        // off, but the tilt-shift's blur over the bottom band (the south window's rows) merges close lines, and a crown on
+        // the waterline marks the tool's shore.
+        RenderSample.TiltShift(true);
+        foreach (var n in new[] { "kits", "trees" }) if (VisualToggles.Names.Contains(n)) VisualToggles.Set(n, true);
+        var cam = Camera.main; var rig = cam.GetComponent<CameraRig>();
+        PromoPose.Gameplay03.Apply(rig, map.Frame);
+        var reads = new System.Collections.Generic.List<float>();
+        var shores = new System.Collections.Generic.List<int>();
+        var surfs = new System.Collections.Generic.List<int>();
+        int previous = QualitySettings.GetQualityLevel();
+        QualitySettings.SetQualityLevel(0, true);   // the web tier, as MapCapture.SurfFrames and the WebGL ?shot render it
+        try
+        {
+            for (int k = 0; k < StripeMoments; k++)
+            {
+                MapShaderGlobals.PinWaterTime(100f + k * 20f / StripeMoments);   // one breaker cycle is 1 / ScBreakerRate = 20 s
+                var (score, rows, surf) = StripeRows(RenderSample.Render(cam, 1920, 1080));
+                reads.Add(score); shores.Add(rows); surfs.Add(surf);
+            }
+        }
+        finally { QualitySettings.SetQualityLevel(previous, true); }
+        TestContext.WriteLine($"rows with a shore per moment (of 95): {string.Join(" ", shores)}; with a foam line: {string.Join(" ", surfs)}");
+        // Fails closed: a window with no shore (a broken pose, a moved coast) or no foam on it (the water toggle off draws
+        // the sea plain, shore still found) would read 0, the best score. coast_measure finds a shore on all 95 rows of
+        // main's and the chirp's WebGL frames.
+        for (int k = 0; k < StripeMoments; k++)
+        {
+            Assert.GreaterOrEqual(shores[k], StripeShoreRowsMin, "south of Jaffa: the window shows the sea meeting the sand");
+            Assert.GreaterOrEqual(surfs[k], StripeShoreRowsMin, "south of Jaffa: the surf draws foam along the shore");
+        }
+        reads.Sort();
+        float median = 0.5f * (reads[StripeMoments / 2 - 1] + reads[StripeMoments / 2]);
+        TestContext.WriteLine($"stripe_rows per moment: {string.Join(" ", reads.Select(v => v.ToString("0.00")))}; median {median:0.00}");
+        Assert.LessOrEqual(median, StripeRowsMax, "south of Jaffa: the surf's lines are not evenly combed");
+    }
+
+    /// <summary>TheDuneCoastsSurfIsNotCombedIntoEvenLines' moments and bound (promo 03's stripe_rows, #716).</summary>
+    const int StripeMoments = 8;
+    const float StripeRowsMax = 0.30f;
+    /// <summary>The fewest of the south window's 95 rows that must find a shore, and a foam line before it, at each
+    /// moment, so a frame with no sea or no surf fails instead of scoring 0 (#854 review).</summary>
+    const int StripeShoreRowsMin = 80;
+
+    /// <summary>coast_measure's stripe_rows over its south window, for a 1920x1080 gameplay03 render (row 0 at the bottom),
+    /// the number of rows that found a shore, and of those the rows with at least one foam line.</summary>
+    static (float score, int rows, int surf) StripeRows(RenderSample r)
+    {
+        int rows = 0, striped = 0, surf = 0;
+        for (int y = 690; y < 880; y += 2)
+        {
+            var c = new char[380];
+            for (int x = 0; x < c.Length; x++)
+            {
+                var p = r.At(380 + x, r.Height - 1 - y);
+                int R = Mathf.RoundToInt(p.r * 255f), G = Mathf.RoundToInt(p.g * 255f), B = Mathf.RoundToInt(p.b * 255f);
+                float lum = (0.2126f * R + 0.7152f * G + 0.0722f * B) / 255f;
+                c[x] = lum >= 0.72f && Mathf.Max(R, G, B) - Mathf.Min(R, G, B) <= 30 ? 'F' : B > R + 15 ? 'W'
+                    : lum >= 0.60f && R - B >= 25 ? 'S' : lum < 0.40f ? 'C' : 'L';
+            }
+            int seen = 0, shore = -1;
+            for (int i = 0; i < c.Length - 3 && shore < 0; i++)
+            {
+                if (c[i] == 'W' || c[i] == 'F') seen++;
+                if (seen >= 6 && Enumerable.Range(i, 3).All(j => c[j] == 'S' || c[j] == 'C')) shore = i;
+            }
+            if (shore < 0 || !Enumerable.Range(shore, c.Length - 3 - shore + 1).Any(i => c[i] == 'S' && c[i + 1] == 'S' && c[i + 2] == 'S')) continue;
+            int from = Mathf.Max(0, shore - 80), far = System.Array.IndexOf(c, 'F', from, shore - from), lines = 0, run = 0;
+            for (int i = far < 0 ? shore : far; i <= shore; i++)
+            {
+                if (i < shore && c[i] == 'F') run++;
+                else { if (run >= 2) lines++; run = 0; }
+            }
+            rows++;
+            if (lines >= 1) surf++;
+            if (lines >= 3) striped++;
+        }
+        return (rows > 0 ? striped / (float)rows : 0f, rows, surf);
+    }
 
     /// <summary>promo-sea review I2 / M5 / N1: the breakers are box-filtered over the pixel, so they never alias. Around
     /// the surf zone west of Tel Aviv, at the gameplay footprint (30 km at 960x540: about 45 m a pixel, the same as

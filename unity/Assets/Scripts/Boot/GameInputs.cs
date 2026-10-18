@@ -50,6 +50,7 @@ namespace Statecraft.Game.Boot
     {
         public Content Content = null!;
         public MapInputs Map = null!;
+        public GoldenData Goldens = null!;
 
         public static MapInputs MapFromDisk(string contentDir, string mapDir) => new MapInputs
         {
@@ -74,8 +75,17 @@ namespace Statecraft.Game.Boot
         /// <summary>A map-only, cosmetic input: "" when the file is missing (the map then skips that layer with a warning).</summary>
         static string ReadIfExists(string path) => File.Exists(path) ? File.ReadAllText(path) : "";
 
-        public static GameInputs FromDisk(string contentDir, string mapDir) =>
-            new GameInputs { Content = ContentLoader.Load(contentDir), Map = MapFromDisk(contentDir, mapDir) };
+        /// <summary>The inputs from disk. The golden data (#394) is read in the editor (the repository's manifest and
+        /// scenarios) and, in a player, only for a -golden run (the copies ContentSync ships), so a normal boot never
+        /// depends on it.</summary>
+        public static GameInputs FromDisk(string contentDir, string mapDir)
+        {
+            var root = Application.isEditor
+                ? Path.Combine(Paths.RepoRoot, "sim", "Statecraft.Sim.Tests", "golden")
+                : Path.Combine(Application.streamingAssetsPath, "golden");
+            var goldens = Application.isEditor || GoldenCheck.Requested() ? GoldenData.FromDisk(root) : new GoldenData();
+            return new GameInputs { Content = ContentLoader.Load(contentDir), Map = MapFromDisk(contentDir, mapDir), Goldens = goldens };
+        }
 
         /// <summary>Builds the inputs from fetched texts (keys are manifest paths) and the packed heightmap's bytes.</summary>
         public static GameInputs FromTexts(IReadOnlyDictionary<string, string> texts, IEnumerable<string> manifest, string heightmapJson, byte[] r16z)
@@ -141,18 +151,37 @@ namespace Statecraft.Game.Boot
             result == UnityWebRequest.Result.ConnectionError
             || (result == UnityWebRequest.Result.ProtocolError && (status >= 500 || status == 408 || status == 429));
 
-        /// <summary>Waits a frame at a time (no threads on WebGL; an Awaitable is never awaited twice) until r is done. On a
-        /// transient failure r is released and its URL fetched again after Backoff, up to MaxAttempts in all. Returns the
+        /// <summary>Seconds a download may go without receiving a byte before it is aborted as stalled and retried like a
+        /// dropped connection (#911). A limit on silence, not on the whole download: the 4 MB heightmap on a slow
+        /// connection keeps receiving bytes and is never cut off, while a server that accepts the request and never
+        /// answers reaches the retry and then BOOT FAIL instead of leaving the loading screen up forever. A fixed limit on
+        /// the whole fetch failed slow but healthy fetches before (#503). The value needs the maintainer's sign-off (#911).</summary>
+        internal const float StallSeconds = 30f;
+
+        /// <summary>Waits a frame at a time (no threads on WebGL; an Awaitable is never awaited twice) until r is done, or
+        /// aborts it when no byte has arrived for <paramref name="stallSeconds"/>. On a transient failure (a stall counts as
+        /// a connection error) r is released and its URL fetched again after Backoff, up to MaxAttempts in all. Returns the
         /// request that succeeded (the caller releases it); on a final failure every attempt is released and an
         /// IOException names the file. Retrying changes only when a file arrives, never its bytes or the parse order.</summary>
-        static async Awaitable<UnityWebRequest> Done(UnityWebRequest r, string name)
+        static async Awaitable<UnityWebRequest> Done(UnityWebRequest r, string name, float stallSeconds)
         {
             for (var attempt = 1; ; attempt++)
             {
-                while (!r.isDone) await Awaitable.NextFrameAsync();
-                if (r.result == UnityWebRequest.Result.Success) return r;
-                var error = $"{name}: {r.error} ({r.url})";
-                var retry = attempt < MaxAttempts && Transient(r.result, r.responseCode);
+                var stalled = false;
+                var bytes = r.downloadedBytes;
+                var lastByte = Time.realtimeSinceStartup;
+                while (!r.isDone)
+                {
+                    if (r.downloadedBytes != bytes) { bytes = r.downloadedBytes; lastByte = Time.realtimeSinceStartup; }
+                    else if (Time.realtimeSinceStartup - lastByte > stallSeconds) { stalled = true; break; }
+                    await Awaitable.NextFrameAsync();
+                }
+                if (!stalled && r.result == UnityWebRequest.Result.Success) return r;
+                var error = stalled
+                    ? FormattableString.Invariant($"{name}: no data for {stallSeconds:0.#} s ({r.url})")
+                    : $"{name}: {r.error} ({r.url})";
+                var retry = attempt < MaxAttempts
+                    && (stalled ? Transient(UnityWebRequest.Result.ConnectionError, 0) : Transient(r.result, r.responseCode));
                 var url = r.url;
                 Release(r);
                 if (!retry) throw new IOException(attempt > 1 ? $"{error} after {attempt} attempts" : error);
@@ -163,16 +192,16 @@ namespace Statecraft.Game.Boot
             }
         }
 
-        static async Awaitable<string> Text(UnityWebRequest r, string name)
+        static async Awaitable<string> Text(UnityWebRequest r, string name, float stallSeconds)
         {
-            r = await Done(r, name);
+            r = await Done(r, name, stallSeconds);
             try { return r.downloadHandler.text; }
             finally { Release(r); }
         }
 
-        static async Awaitable<byte[]> Bytes(UnityWebRequest r, string name)
+        static async Awaitable<byte[]> Bytes(UnityWebRequest r, string name, float stallSeconds)
         {
-            r = await Done(r, name);
+            r = await Done(r, name, stallSeconds);
             try { return r.downloadHandler.data; }
             finally { Release(r); }
         }
@@ -187,26 +216,36 @@ namespace Statecraft.Game.Boot
         /// <summary>Fetches the manifest, then starts every download before awaiting any (parallel), then loads. A transient
         /// failure is retried (Done). When one download fails for good, the others still running are aborted and disposed.
         /// Every URL carries <paramref name="buildId"/> (WithBuildId; the player passes Application.buildGUID).</summary>
-        public static async Awaitable<GameInputs> FetchAsync(string baseUrl, string buildId = "")
+        public static Awaitable<GameInputs> FetchAsync(string baseUrl, string buildId = "") => FetchAsync(baseUrl, buildId, StallSeconds);
+
+        /// <summary>FetchAsync with another stall limit (the stalled-server test uses a short one).</summary>
+        internal static async Awaitable<GameInputs> FetchAsync(string baseUrl, string buildId, float stallSeconds)
         {
-            var manifest = ContentManifest.Parse(await Text(Start(WithBuildId(baseUrl + "/content/" + ContentManifest.FileName, buildId)), ContentManifest.FileName));
+            var manifest = ContentManifest.Parse(await Text(Start(WithBuildId(baseUrl + "/content/" + ContentManifest.FileName, buildId)), ContentManifest.FileName, stallSeconds));
+            var goldenText = GoldenCheck.Requested()
+                ? await Text(Start(WithBuildId(baseUrl + "/golden/manifest.txt", buildId)), "golden/manifest.txt", stallSeconds) : "";
+            var scenarioNames = goldenText.Length == 0 ? new List<string>() : GoldenData.Parse(goldenText).Select(x => x.name).Where(n => n.StartsWith("scenario-", StringComparison.Ordinal)).Select(n => n.Substring("scenario-".Length)).ToList();
             var requests = manifest.Select(f => (file: f, request: Start(WithBuildId(baseUrl + "/content/" + f, buildId)))).ToList();
+            var scenarioRequests = scenarioNames.Select(n => (name: n, request: Start(WithBuildId(baseUrl + "/golden/scenarios/" + n + ".yaml", buildId)))).ToList();
             var meta = Start(WithBuildId(baseUrl + "/map/heightmap.json", buildId));
             var r16z = Start(WithBuildId(baseUrl + "/map/" + HeightmapCodec.FileName, buildId));
             try
             {
                 var texts = new Dictionary<string, string>();
-                foreach (var (file, request) in requests) texts[file] = await Text(request, file);
-                var metaText = await Text(meta, "heightmap.json");
-                var r16zBytes = await Bytes(r16z, HeightmapCodec.FileName);
+                foreach (var (file, request) in requests) texts[file] = await Text(request, file, stallSeconds);
+                var metaText = await Text(meta, "heightmap.json", stallSeconds);
+                var r16zBytes = await Bytes(r16z, HeightmapCodec.FileName, stallSeconds);
                 DiagLog.BootPhase($"downloaded {texts.Count + 3} files");
                 var inputs = FromTexts(texts, manifest, metaText, r16zBytes);
+                inputs.Goldens = new GoldenData { Manifest = goldenText };
+                foreach (var (name, request) in scenarioRequests) inputs.Goldens.Scenarios[name] = await Text(request, "golden/scenarios/" + name + ".yaml", stallSeconds);
                 DiagLog.BootPhase("content parsed and validated");
                 return inputs;
             }
             finally
             {
                 foreach (var (_, request) in requests) Release(request);
+                foreach (var (_, request) in scenarioRequests) Release(request);
                 Release(meta); Release(r16z);
             }
         }

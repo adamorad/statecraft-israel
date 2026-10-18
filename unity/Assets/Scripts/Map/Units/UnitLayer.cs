@@ -37,6 +37,10 @@ namespace Statecraft.Game.Map.Units
         /// destroyed when the tokens are rebuilt and with the layer, so no roster change leaks them (review of #559, M1).</summary>
         readonly List<Mesh> tokenMeshes = new List<Mesh>();
         List<UnitToken>? roster;
+        /// <summary>What <see cref="Show"/> last drew from, so a Collection model's arrival can draw the tokens that waited for
+        /// it (an Arab force's, issue #665).</summary>
+        Content? shownContent;
+        GameState? shownState;
         List<PlacedToken> placed = new List<PlacedToken>();
         Transform tokensRoot = null!;
         readonly List<Transform> badges = new List<Transform>();
@@ -46,6 +50,15 @@ namespace Statecraft.Game.Map.Units
         /// none) and the box of the token's pieces that neither turn nor move (null for a flying aircraft alone). In the order
         /// of <see cref="badges"/> and <see cref="keepClear"/>.</summary>
         readonly List<(Vector3 home, float back, Vector3 pole, MeshFilter? flag, Bounds? standing)> badgeHomes = new List<(Vector3, float, Vector3, MeshFilter?, Bounds?)>();
+        /// <summary>Each token's figures as laid out for camera yaw 0 (their place round the base's middle and their heading),
+        /// the base's middle and radius, the badge's lift over the highest figure and the figures' meshes (none for an aircraft
+        /// or a ship), in the order of <see cref="badges"/>. <see cref="FaceCamera"/> turns the figures and the flag's pole
+        /// about the middle with the camera's yaw (issue #644): laid out for yaw 0 alone, at yaw 90 or 270 the trio stood in a
+        /// column and from about yaw 180 the pole stood in front of it.</summary>
+        readonly List<(Vector3 centre, float radius, float lift, (Transform figure, Vector3 offset, float heading)[] figures, MeshFilter[] meshes)> trios =
+            new List<(Vector3, float, float, (Transform, Vector3, float)[], MeshFilter[])>();
+        /// <summary>The camera yaw the trios were last turned to: a pan or a zoom keeps the yaw, so it moves no figure.</summary>
+        float? turnedFor;
         /// <summary>A badge sits this share of its token's base radius behind the trio, seen from the camera, and
         /// <see cref="BadgeAsideM"/> to the side away from its flag's pole on screen (a compact token's pole cannot stand
         /// further out than its base's edge).</summary>
@@ -124,6 +137,12 @@ namespace Statecraft.Game.Map.Units
             // off: a plain screenshot run (HiddenInCaptures) keeps every tree, so its checkpoints stay comparable.
             layer.assets.OnTeardown(() => UnitShowcase.HideTrees(map, ToggleName, Array.Empty<(Vector2, float)>()));
             layer.assets.OnTeardown(layer.FreeTokenMeshes);
+            // The Collection's figures (issue #665): an Arab force's token waits for its figure, so ask for each one the map
+            // can draw (nothing is fetched before the frame after the request, CollectionStream), and draw again when one arrives.
+            UnitFigures.ModelArrived += layer.OnModelArrived;
+            layer.assets.OnTeardown(() => UnitFigures.ModelArrived -= layer.OnModelArrived);
+            foreach (var u in units)
+                if (UnitRoster.OnMap(u) && u.Side != UnitData.Israel) UnitFigures.Prefetch(UnitFigures.SideFigure(u.Side)!);
             layer.assets.OnTeardown(VisualToggles.Register(ToggleName, on =>
             {
                 if (root != null) root.SetActive(on);
@@ -163,19 +182,53 @@ namespace Statecraft.Game.Map.Units
             away = away.sqrMagnitude > 1e-6f ? away.normalized : Vector3.forward;
             var right = cam.transform.right; right.y = 0f;
             right = right.sqrMagnitude > 1e-6f ? right.normalized : Vector3.right;
+            // The trio and its pole turn with the camera's yaw, so the camera always sees them as at yaw 0: three figures side
+            // by side, the pole behind them (issue #644). Only a new yaw moves them; each is set on the draped top where it lands.
+            // Only the game camera turns them: this runs for every camera (the scene view, a preview), and two cameras taking
+            // turns would re-drape the figures every frame and leave them turned for whichever rendered last (review of #644).
+            float yaw = Mathf.Atan2(away.x, away.z) * Mathf.Rad2Deg;
+            bool turn = cam == Camera.main && turnedFor != yaw;
+            if (turn) turnedFor = yaw;
+            var turning = Quaternion.Euler(0f, turnedFor ?? 0f, 0f);   // as the figures stand now (yaw 0 until first turned)
             for (int i = 0; i < badges.Count; i++)
             {
                 var b = badges[i]; if (b == null) continue;
                 var (home, back, pole, flag, standing) = badgeHomes[i];
+                var (centre, radius, lift, figures, meshes) = trios[i];
+                if (turn && figures.Length > 0)
+                {
+                    float highest = float.MinValue;
+                    foreach (var (figure, offset, heading) in figures)
+                    {
+                        var p = centre + turning * offset;
+                        p.y = UnitPlinth.FigureY(map, radius, p.x, p.z);
+                        highest = Mathf.Max(highest, p.y);
+                        figure.SetPositionAndRotation(p, Quaternion.Euler(0f, yaw + heading, 0f));
+                    }
+                    home.y = highest + lift;   // the badge clears the highest figure, wherever the turn set it
+                    badgeHomes[i] = (home, back, pole, flag, standing);
+                    if (flag != null)
+                    {
+                        var foot = centre + turning * pole;
+                        foot.y = UnitPlinth.FigureY(map, radius, foot.x, foot.z);
+                        flag.transform.position = foot;
+                    }
+                }
+                if (figures.Length > 0) pole = turning * pole;   // where the pole stands now, for the badge's side
                 var aside = pole == Vector3.zero ? Vector3.zero : (Vector3.Dot(pole, right) > 0f ? -right : right) * BadgeAsideM;
                 var at = home + away * back + aside;
                 b.SetPositionAndRotation(at, rotation);
                 var boxes = keepClear[i];
                 boxes[0] = new Bounds(at, Vector3.one * UnitBadge.SizeM);
-                if (flag != null && standing is Bounds s)
+                if ((flag != null || meshes.Length > 0) && standing is Bounds s)
                 {
-                    UnitFlagFacing.Face(flag.transform, eye);   // as it will turn for this camera
-                    s.Encapsulate(WorldBox(flag)); boxes[1] = s;
+                    if (flag != null)
+                    {
+                        UnitFlagFacing.Face(flag.transform, eye);   // as it will turn for this camera
+                        s.Encapsulate(WorldBox(flag));
+                    }
+                    foreach (var m in meshes) s.Encapsulate(WorldBox(m));   // the figures as turned
+                    boxes[1] = s;
                 }
             }
         }
@@ -184,7 +237,8 @@ namespace Statecraft.Game.Map.Units
         /// changed; returns true when it did. A selected unit that is no longer drawn is deselected.</summary>
         public bool Show(Content content, GameState state)
         {
-            var now = UnitRoster.Build(units, content, state);
+            shownContent = content; shownState = state;
+            var now = UnitRoster.Build(units, content, state, UnitFigures.Arrived);
             if (roster != null && roster.SequenceEqual(now)) return false;
             roster = now;
             placed = UnitPlacer.Place(now, spots);
@@ -192,6 +246,18 @@ namespace Statecraft.Game.Map.Units
             if (Selected != null && !placed.Any(p => p.Token.Unit.Id == Selected)) Select(null); else Select(Selected);
             return true;
         }
+
+        /// <summary>A Collection model arrived: draws the tokens again if it lets a new one show (an Arab force's figure).</summary>
+        void OnModelArrived(string id)
+        {
+            if (this == null || shownContent == null || shownState == null) return;
+            Show(shownContent, shownState);
+        }
+
+        /// <summary>Where a token's vehicles stand on its base (shares of the base's radius, x east and z north, for camera
+        /// yaw 0) and their headings: on the front of the base, before the trio, side-on to the camera, so the figures do
+        /// not hide them (behind the trio they were hidden at 30 km; issue #665). The first on the west, a second on the east.</summary>
+        internal static readonly (Vector2 at, float heading)[] VehicleSlots = { (new Vector2(-0.42f, -0.55f), 270f), (new Vector2(0.42f, -0.55f), 90f) };
 
         /// <summary>What a click on hex (q, r) selects: the unit standing there, unless it is already selected (a second
         /// click shows the hex, so a token never hides the hex's map actions) or the "units" toggle hides the layer; null
@@ -268,6 +334,7 @@ namespace Statecraft.Game.Map.Units
             }
             FreeTokenMeshes();
             badges.Clear(); badgeHomes.Clear(); facedFor = null;
+            trios.Clear(); turnedFor = null;   // the new figures stand as at yaw 0
             treeHoles.Clear();
             keepClear = new List<Bounds[]>();   // a new list, so the labels see the change
             float hex = map.Hexes.hex_size_km * 1000f;
@@ -278,29 +345,50 @@ namespace Statecraft.Game.Map.Units
                 go.transform.SetParent(tokensRoot, false);
                 var centre = Centre(p.Spot);
                 var foot = centre;   // where the badge's height is measured from
-                float top;
+                float top, plinth = 0f;
+                var figures = Array.Empty<(Transform, Vector3, float)>();
                 switch (t.Unit.Service)
                 {
                     case UnitData.Army:
                         // Demo2 T29's token: the figures stand shoulder to shoulder on one earth base with a bright white
                         // rim, under the side's flag (refs #197). The base fits the full trio, whatever the call-up.
                         float k = UnitShowcase.DrawSpread * hex * Scale(p.Spot);
-                        float plinth = UnitPlinth.Radius(UnitPlinth.TrioWidth(UnitShowcase.FigureOffsets(3), k));
+                        plinth = UnitPlinth.Radius(UnitPlinth.TrioWidth(UnitShowcase.FigureOffsets(3), k));
                         foot.y = UnitPlinth.Build(map, go.transform, centre, plinth, t.Unit.Side, TokenMesh, MeshFor, paint, rim, flagWhite, flagBlue);
                         treeHoles.Add((new Vector2(centre.x, centre.z), plinth * UnitPlinth.RimOuter));
                         var offsets = UnitShowcase.FigureOffsets(t.Figures);
                         float highest = foot.y;   // the badge clears the highest figure (on a slope the uphill one stands higher)
+                        bool israel = t.Unit.Side == UnitData.Israel;
+                        int vehicles = Mathf.Min(t.Vehicles.Count, VehicleSlots.Length);
+                        figures = new (Transform, Vector3, float)[offsets.Length + vehicles];
                         for (int i = 0; i < offsets.Length; i++)
                         {
                             // The pose and heading are the trio position's; the headgear is the unit's (sourced, or the default).
                             var (_, _, pose, faded, heading) = UnitShowcase.Trio[i];
-                            var hat = Hat(t.Headgear[i]);
-                            var type = UnitRoster.RiflemanType(t.Headgear[i]);
                             var at = centre + new Vector3(offsets[i].x, 0, offsets[i].y) * k;
                             at.y = UnitPlinth.FigureY(map, plinth, at.x, at.z);
                             highest = Mathf.Max(highest, at.y);
-                            UnitShowcase.Piece(go.transform, $"Rifleman{i}", type, () => MeshFor($"{type}/{pose}", () => UnitModels.Rifleman(hat, pose, faded, type)),
-                                paint, at, Quaternion.Euler(0, heading, 0), UnitShowcase.FigureScale, out _);
+                            Transform figure;
+                            if (israel)
+                            {
+                                var hat = Hat(t.Headgear[i]);
+                                var type = UnitRoster.RiflemanType(t.Headgear[i]);
+                                figure = UnitShowcase.Piece(go.transform, $"Rifleman{i}", type, () => MeshFor($"{type}/{pose}", () => UnitModels.Rifleman(hat, pose, faded, type)),
+                                    paint, at, Quaternion.Euler(0, heading, 0), UnitShowcase.FigureScale, out _).transform;
+                            }
+                            else figure = EmptyPiece(go.transform, $"Figure{i}", at, heading);   // no code-built figure for another side (#740)
+                            UnitFigures.Dress(figure, UnitFigures.FigureFor(t.Unit, i, israel ? t.Headgear[i] : null));   // the Collection's figure, once streamed (#665)
+                            figures[i] = (figure, new Vector3(offsets[i].x, 0, offsets[i].y) * k, heading);
+                        }
+                        for (int j = 0; j < vehicles; j++)
+                        {
+                            var (slot, heading) = VehicleSlots[j];
+                            var offset = new Vector3(slot.x, 0f, slot.y) * plinth;
+                            var at = centre + offset;
+                            at.y = UnitPlinth.FigureY(map, plinth, at.x, at.z);
+                            var vehicle = EmptyPiece(go.transform, $"Vehicle{j}", at, heading);
+                            UnitFigures.Dress(vehicle, t.Vehicles[j]);   // the gun or the jeep: drawn only once streamed (#665)
+                            figures[offsets.Length + j] = (vehicle, offset, heading);
                         }
                         foot.y = highest;
                         top = UnitBadge.FigureHeightM * UnitShowcase.FigureScale;
@@ -330,13 +418,15 @@ namespace Statecraft.Game.Map.Units
                 var flagT = go.transform.Find(UnitPlinth.FlagName);
                 var flag = flagT != null ? flagT.GetComponent<MeshFilter>() : null;
                 var pole = flagT != null ? new Vector3(flagT.position.x - centre.x, 0f, flagT.position.z - centre.z) : Vector3.zero;
-                var standing = StillBox(go.transform, flag);
+                var meshes = figures.SelectMany(f => f.Item1.GetComponentsInChildren<MeshFilter>(true)).ToArray();
+                var standing = StillBox(go.transform, flag, meshes);
                 badges.Add(badge.transform); badgeHomes.Add((home, back, pole, flag, standing));
+                trios.Add((centre, plinth, lift, figures, meshes));
                 AddRenderer(badge.transform, "Plate", MeshFor("badge-plate", UnitBadge.PlateMesh), badgePlate, 0f);
                 AddRenderer(badge.transform, "Glyph", MeshFor("badge-" + t.Unit.Service, () => UnitBadge.GlyphMesh(t.Unit.Service)), badgeGlyph, -UnitBadge.GlyphLift);
-                // The badge's cube and the pieces (the flag as it stands now); FaceCamera moves both with the camera.
+                // The badge's cube and the pieces (the flag and the figures as they stand now); FaceCamera moves both with the camera.
                 var pieces = standing;
-                if (flag != null && pieces is Bounds s) { s.Encapsulate(WorldBox(flag)); pieces = s; }
+                if (pieces is Bounds s) { if (flag != null) s.Encapsulate(WorldBox(flag)); foreach (var m in meshes) s.Encapsulate(WorldBox(m)); pieces = s; }
                 keepClear.Add(pieces is Bounds p2 ? new[] { new Bounds(badge.transform.position, Vector3.one * UnitBadge.SizeM), p2 }
                     : new[] { new Bounds(badge.transform.position, Vector3.one * UnitBadge.SizeM) });
             }
@@ -355,18 +445,28 @@ namespace Statecraft.Game.Map.Units
             return box;
         }
 
-        /// <summary>The box of a token's pieces that neither turn nor move (a flying aircraft, the badge and the flag, which
-        /// turns to the camera, are left out), or null when it has none.</summary>
-        static Bounds? StillBox(Transform token, MeshFilter? flag)
+        /// <summary>The box of a token's pieces that neither turn nor move (a flying aircraft, the badge, and the flag and the
+        /// figures, which turn with the camera, are left out), or null when it has none.</summary>
+        static Bounds? StillBox(Transform token, MeshFilter? flag, MeshFilter[] figures)
         {
             Bounds? box = null;
             foreach (var f in token.GetComponentsInChildren<MeshFilter>(true))
             {
-                if (f.sharedMesh == null || f == flag || f.GetComponentInParent<UnitBadge>(true) != null || f.GetComponentInParent<ShowcaseFlight>(true) != null) continue;
+                if (f.sharedMesh == null || f == flag || Array.IndexOf(figures, f) >= 0 || f.GetComponentInParent<UnitBadge>(true) != null || f.GetComponentInParent<ShowcaseFlight>(true) != null) continue;
                 var w = WorldBox(f);
                 if (box is Bounds b) { b.Encapsulate(w); box = b; } else box = w;
             }
             return box;
+        }
+
+        /// <summary>A piece with no code-built model (an Arab force's figure, a vehicle): the Collection's model goes under it.</summary>
+        static Transform EmptyPiece(Transform parent, string name, Vector3 at, float heading)
+        {
+            var piece = new GameObject(name).transform;
+            piece.SetParent(parent, false);
+            piece.SetPositionAndRotation(at, Quaternion.Euler(0, heading, 0));
+            piece.localScale = Vector3.one * UnitShowcase.FigureScale;
+            return piece;
         }
 
         static void AddRenderer(Transform parent, string name, Mesh mesh, Material mat, float z)

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Statecraft.Sim;
+using YamlDotNet.RepresentationModel;
 
 /// <summary>Checks the real content/ folder at the repository root.</summary>
 public class RealContentTests
@@ -60,6 +61,19 @@ public class RealContentTests
                 Assert.True(source.Checked >= new DateTime(2026, 10, 11), $"{key}: {source.Url} checked before the 11 October review");
             });
         }
+    }
+
+    /// <summary>Person.Loyalty is a plain int, so a row without loyalty: would load as 0 and that minister would half-deliver
+    /// every delegated decision (R-EVT-003, #107). Every row sets it.</summary>
+    [Fact]
+    public void EveryPersonSetsLoyalty()
+    {
+        var yaml = new YamlStream();
+        using (var r = new StringReader(File.ReadAllText(Path.Combine(ContentRoot(), "people.yaml")))) yaml.Load(r);
+        var rows = (YamlSequenceNode)((YamlMappingNode)yaml.Documents[0].RootNode)[new YamlScalarNode("people")];
+        Assert.Equal(C.People.Count, rows.Children.Count);
+        foreach (YamlMappingNode m in rows)
+            Assert.True(m.Children.ContainsKey(new YamlScalarNode("loyalty")), $"people[{m[new YamlScalarNode("id")]}] has no loyalty");
     }
 
     [Fact]
@@ -276,6 +290,15 @@ public class RealContentTests
             Assert.Equal(new DateTime(1950, 1, 1), C.Events.Single(e => e.Id == id).To);
     }
 
+    // Owner decision of 17 October 2026 (#937), "Yes, match the others": refusing any of the four armistices keeps the war
+    // going at rung 4. Egypt's hold_out had no set_rung, so refusing it left the rung where it was.
+    [Fact]
+    public void RefusingAnyArmisticeKeepsTheWarGoingAtRung4()
+    {
+        foreach (var id in new[] { "armistice_egypt", "armistice_jordan", "armistice_lebanon", "armistice_syria" })
+            Assert.True(C.Events.Single(e => e.Id == id).Options.Single(o => o.Id == "hold_out").SetRung == 4, $"{id}.hold_out must set rung 4");
+    }
+
     [Fact]
     public void CabinetChangesOf1950And1951()
     {
@@ -372,9 +395,10 @@ public class RealContentTests
         var s = GoldenRun.Play(C, new DateTime(1952, 1, 1));
         Assert.Equal(GameOverCodes.MvpEnded, s.GameOver);   // the run reaches the game's end, 15 January 1952 (R-LOOP-004)
         var expected = new[] { "clothing_rationing_1950", "education_registration_1951", "forex_crisis_1951", "frumkin_commission",
-            "hula_drainage", "iraqi_exodus", "israel_bonds", "law_of_return", "maabarot_policy", "ministry_supply_crisis", "reparations_claim" };
+            "iraqi_exodus", "israel_bonds", "law_of_return", "maabarot_policy", "ministry_supply_crisis", "reparations_claim" };
         var missing = expected.Where(id => !s.FiredEvents.Contains(id)).ToList();
         Assert.True(missing.Count == 0, "Never fired: " + string.Join(", ", missing));
+        Assert.DoesNotContain("hula_drainage", s.FiredEvents);   // R-SWAMP-002: it waits for works at the Hula, and this run starts none
         Assert.Equal(1.0, s.Policies["maabarot"]);   // the historical choice opens transit camps
     }
 }

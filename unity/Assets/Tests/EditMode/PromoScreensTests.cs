@@ -85,6 +85,75 @@ public class PromoScreensTests
         }
     }
 
+    /// <summary>#41 M5 (WCAG 1.4.1): whether a party is in the coalition is readable without the swatch's colour. Each
+    /// party's chip sits in a group whose first child is a heading naming its side, "Coalition" or "Opposition" (Hebrew
+    /// קואליציה, אופוזיציה), the side the half circle seats it on; in each legislature, English and Hebrew.</summary>
+    [Test]
+    public void EachPartyChipSaysWhetherThePartyIsInTheCoalition()
+    {
+        var he = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.StringsHebrew).text, "strings.he.yaml");
+        foreach (var (text, coalition, opposition) in new[] { (Text, "Coalition", "Opposition"), (he, "קואליציה", "אופוזיציה") })
+            foreach (var date in OneDatePerLegislature())
+            {
+                var g = At(date);
+                using var ui = new UiTestKit();
+                var cabinet = new CabinetPresenter(ui.Root, new SimBridge(g, text), text, null);
+                var leg = Offices.Legislature(C, g.State.Date)!;
+                var blocks = CabinetPresenter.Blocks(C, leg, Offices.Government(C, g.State.Date), g.State.Date);
+                Assert.IsTrue(blocks.Any(b => b.Coalition) && blocks.Any(b => !b.Coalition), $"{date:yyyy-MM-dd}: precondition, both sides seated");
+                foreach (var b in blocks)
+                {
+                    var where = $"{text["ui.lang"]} {g.State.Date:yyyy-MM-dd} {b.Party}";
+                    var group = ui.Q<VisualElement>("party-" + b.Party).parent;
+                    Assert.IsTrue(group.ClassListContains("party-group"), where + ": the chip sits in a labelled group");
+                    var heading = group.Children().First() as Label;
+                    Assert.IsNotNull(heading, where + ": the group opens with its heading");
+                    Assert.AreEqual(b.Coalition ? coalition : opposition, heading!.text, where);
+                }
+                cabinet.Dispose();
+            }
+    }
+
+    /// <summary>#41 M5: the groups follow a coalition change inside one government and one legislature (governments.yaml
+    /// coalition_changes, 25 May 1953: the General Zionists, the Sephardim and the Yemenite Association leave) on the same
+    /// screen, as the half circle does. The date is set directly: play stops in January 1952, the content goes on. Seats the
+    /// content does not record are on neither side, and a side without a party gets no heading. No legislature in the
+    /// content has either today, so the second half takes the start's opposition seats away from a copy of the content.</summary>
+    [Test]
+    public void ThePartyGroupsFollowACoalitionChangeAndLeaveUnrecordedSeatsOut()
+    {
+        var g = GameSession.New(C, GoldenRun.Seed, Mode.Historical);
+        var change = new DateTime(1953, 5, 25);
+        g.State.Date = change.AddDays(-1);
+        using (var ui = new UiTestKit())
+        {
+            var cabinet = new CabinetPresenter(ui.Root, new SimBridge(g, Text), Text, null);
+            string Side(string party) => ((Label)ui.Q<VisualElement>("party-" + party).parent.Children().First()).text;
+            var leaving = new[] { "general_zionists", "sephardim", "yemenite_association" };
+            foreach (var p in leaving) Assert.AreEqual("Coalition", Side(p), "24 May 1953: " + p);
+            g.State.Date = change;
+            cabinet.Render();
+            foreach (var p in leaving) Assert.AreEqual("Opposition", Side(p), "25 May 1953, the same screen: " + p);
+            Assert.AreEqual("Coalition", Side("mapai"), "25 May 1953: mapai");
+            cabinet.Dispose();
+        }
+
+        var c = ContentLoader.Load(Paths.Content);   // a copy: the shared content stays as it is
+        var start = GameSession.New(c, GoldenRun.Seed, Mode.Historical);
+        var leg = Offices.Legislature(c, start.State.Date)!;
+        var coalition = Offices.Government(c, start.State.Date)!.CoalitionOn(start.State.Date);
+        foreach (var party in leg.Seats.Keys.Where(k => !coalition.Contains(k)).ToList()) leg.Seats[party] = 0;
+        using (var ui = new UiTestKit())
+        {
+            var cabinet = new CabinetPresenter(ui.Root, new SimBridge(start, Text), Text, null);
+            var parties = ui.Q<VisualElement>("cabinet-parties");
+            Assert.AreSame(parties, ui.Q<VisualElement>("party-unrecorded").parent, "the seats not recorded are on neither side");
+            CollectionAssert.AreEqual(new[] { "Coalition" }, parties.Query<Label>(className: "party-group-heading").ToList().Select(l => l.text),
+                "no heading over an opposition without a party");
+            cabinet.Dispose();
+        }
+    }
+
     /// <summary>Review I1: the majority line runs, row by row, between the last seat of a majority and the next, clear of
     /// every dot, on the 37-seat Provisional State Council (promo 04) and the 120-seat Knesset; the layout keeps dots apart.</summary>
     [Test]
@@ -203,6 +272,11 @@ public class PromoScreensTests
         Assert.AreEqual("HS", PersonCard.Initials("Haim-Moshe Shapira"));
         Assert.AreEqual("M", PersonCard.Initials("Mordechai"));
         Assert.AreEqual("", PersonCard.Initials(""));
+        // In Hebrew the plate shows the first name's initial and the surname (Beri, 17 October 2026), not two letters.
+        Assert.AreEqual("י. ידין", PersonCard.InitialAndSurname("יגאל ידין"));
+        Assert.AreEqual("ש. בן-מאיר", PersonCard.InitialAndSurname("שלמה-ישראל בן-מאיר"));
+        Assert.AreEqual("ש. בורג", PersonCard.InitialAndSurname("שלמה יוסף בורג"));
+        Assert.AreEqual("", PersonCard.InitialAndSurname(""));
         var g = GameSession.New(C, GoldenRun.Seed, Mode.Historical);
         using var ui = new UiTestKit();
         var catalog = ScriptableObject.CreateInstance<PortraitCatalog>();
@@ -224,6 +298,64 @@ public class PromoScreensTests
             }
         }
         finally { Object.DestroyImmediate(catalog); }
+    }
+
+    /// <summary>In Hebrew a card with no portrait shows the first name's initial and the surname ("י. ידין", Beri), and the
+    /// longest such plate text of any person fits every plate at a desktop, the short browser, a laptop and a phone size.</summary>
+    [UnityTest]
+    public IEnumerator InHebrewThePlateShowsTheInitialAndSurnameAndItFits()
+    {
+        var he = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.StringsHebrew).text, "strings.he.yaml");
+        var g = GameSession.New(C, GoldenRun.Seed, Mode.Historical);
+        while (g.State.Date < new DateTime(1950, 2, 1)) g.Step(HistoricalAI.Commands(C, g.State));
+        var plates = C.People.Where(p => p.NameHe != "").Select(p => PersonCard.InitialAndSurname(p.NameHe)).ToList();
+        var problems = new List<string>();
+        foreach (var (w, h) in new[] { (1920, 1080), (1568, 752), (1024, 768), (390, 844) })
+        {
+            var rt = new RenderTexture(w, h, 0);
+            var ps = Object.Instantiate(AssetDatabase.LoadAssetAtPath<PanelSettings>(UiPaths.Panel));
+            ps.targetTexture = rt;
+            var go = new GameObject("HebrewInitialsTest");
+            go.SetActive(false);
+            var doc = go.AddComponent<UIDocument>();
+            doc.panelSettings = ps;
+            doc.visualTreeAsset = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(UiPaths.GameUxml);
+            go.SetActive(true);
+            var root = doc.rootVisualElement;
+            var owned = new List<IDisposable>();
+            try
+            {
+                for (int i = 0; i < 20 && !(root.Q("top-bar").worldBound.width > 0); i++) yield return null;
+                root.Q("root").RemoveFromClassList("loading");
+                root.Q("root").AddToClassList(UiLanguage.HebrewClass);
+                var bridge = new SimBridge(g, he);
+                owned.Add(new HudPresenter(root, bridge, he));
+                owned.Add(new CabinetPresenter(root, bridge, he, null));
+                owned.Add(new DefencePresenter(root, bridge, he));
+                var nav = new ScreenNav(root); owned.Add(nav);
+                foreach (var s in new[] { "cabinet", "defence" })
+                {
+                    nav.Open(s);
+                    for (int i = 0; i < 6; i++) yield return null;
+                    if (s == "defence")   // no catalog here, so Yadin, the Chief of Staff in February 1950, has no portrait
+                        Assert.AreEqual("י. ידין", root.Q<Label>("lead-chief_of_staff-initials").text, "Yadin's plate, no portrait");
+                    var shown = root.Q("screen-" + s).Query<Label>(className: PersonCard.InitialsClass).ToList().Where(l => l.contentRect.width > 0).ToList();
+                    if (shown.Count == 0) problems.Add($"{w}x{h} {s}: no plate laid out");
+                    foreach (var l in shown)
+                    {
+                        var (widest, px) = plates.Select(t => (t, l.MeasureTextSize(t, 0, VisualElement.MeasureMode.Undefined, 0, VisualElement.MeasureMode.Undefined).x))
+                            .OrderByDescending(x => x.Item2).First();
+                        if (px > l.contentRect.width + 0.5f) problems.Add($"{w}x{h} {l.name}: '{widest}' is {px:0} px in {l.contentRect.width:0} px at {l.resolvedStyle.fontSize} px");
+                    }
+                }
+            }
+            finally
+            {
+                for (int i = owned.Count - 1; i >= 0; i--) owned[i].Dispose();
+                Object.DestroyImmediate(go); Object.DestroyImmediate(ps); rt.Release(); Object.DestroyImmediate(rt);
+            }
+        }
+        Assert.IsEmpty(problems, string.Join("\n", problems.Distinct().Take(40)));
     }
 
     [Test]
@@ -434,6 +566,102 @@ public class PromoScreensTests
             }
         }
         finally { cabinet.Dispose(); blur.Dispose(); }
+    }
+
+    /// <summary>#41 M6 (WCAG 1.4.11): the selected Cabinet seat carries a mark that is not a colour change, a tag on its
+    /// plate reading "Selected" (Hebrew מסומן) at 4.5:1, which stays when keyboard focus moves to another card; the other
+    /// cards show none, and selecting moves nothing on the card. For a grid card and the Prime Minister's, English and
+    /// Hebrew.</summary>
+    [UnityTest]
+    public IEnumerator TheSelectedSeatIsTaggedWithoutMovingItsCard()
+    {
+        var he = UiText.Parse(AssetDatabase.LoadAssetAtPath<TextAsset>(UiPaths.StringsHebrew).text, "strings.he.yaml");
+        foreach (var (text, hebrew) in new[] { (Text, false), (he, true) })
+        {
+            using var ui = new UiTestKit();
+            var g = GameSession.New(C, GoldenRun.Seed, Mode.Historical);
+            var cabinet = new CabinetPresenter(ui.Root, new SimBridge(g, text), text, null);
+            ui.Q<VisualElement>("root").RemoveFromClassList("loading");
+            ui.Q<VisualElement>("root").EnableInClassList(UiLanguage.HebrewClass, hebrew);
+            new ScreenNav(ui.Root).Open("cabinet");
+            try
+            {
+                for (int i = 0; i < 4; i++) yield return null;
+                foreach (var (office, other) in new[] { ("finance_minister", "seat-foreign_minister"), ("prime_minister", "seat-finance_minister") })
+                {
+                    var where = $"{text["ui.lang"]} {office}";
+                    var card = ui.Q<Button>("seat-" + office);
+                    // Another seat first, so the candidate list is open in both states: it opening squeezes the Prime
+                    // Minister's portrait (M7), which is not what this measures.
+                    cabinet.Select(other.Substring("seat-".Length));
+                    for (int i = 0; i < 4; i++) yield return null;
+                    var rects = card.Children().Select(e => e.layout).Prepend(card.layout).ToList();
+                    cabinet.Select(office);
+                    for (int i = 0; i < 4; i++) yield return null;
+                    Assert.IsTrue(card.ClassListContains("seat-selected"), where + ": precondition, selected");
+                    Label? Tag(VisualElement c) => c.Query<Label>(className: "card-selected").ToList()
+                        .FirstOrDefault(l => l.resolvedStyle.display == DisplayStyle.Flex && l.worldBound.width > 0);
+                    var tag = Tag(card);
+                    Assert.IsNotNull(tag, where + ": the selected card carries a visible tag");
+                    Assert.AreEqual(text["card.selected"], tag!.text, where);
+                    Assert.IsTrue(card.worldBound.Contains(tag.worldBound.min) && card.worldBound.Contains(tag.worldBound.max - Vector2.one), where + ": the tag is on the card");
+                    Assert.GreaterOrEqual(Contrast(tag.resolvedStyle.color, tag.resolvedStyle.backgroundColor, Deep), 4.5f, where + ": the tag's text");
+                    foreach (var c in ui.Root.Query<Button>(className: "seat").ToList().Append(ui.Q<Button>("seat-" + CabinetPresenter.PrimeMinister)).Where(c => c != card))
+                        Assert.IsNull(Tag(c), where + ": " + c.name + " is not tagged");
+                    var after = card.Children().Select(e => e.layout).Prepend(card.layout).ToList();
+                    for (int i = 0; i < rects.Count; i++)
+                        Assert.IsTrue(Vector2.Distance(rects[i].position, after[i].position) < 0.5f && Vector2.Distance(rects[i].size, after[i].size) < 0.5f,
+                            $"{where}: element {i} moved, {rects[i]} -> {after[i]}");
+
+                    var next = ui.Q<Button>(other);
+                    next.Focus();
+                    for (int i = 0; i < 10 && next.focusController.focusedElement != next; i++) yield return null;
+                    yield return null; yield return null;
+                    Assert.AreSame(next, next.focusController.focusedElement, where + ": precondition, focus moved on");
+                    Assert.IsNotNull(Tag(card), where + ": the tag stays once focus moves on");
+                    next.Blur();
+                }
+            }
+            finally { cabinet.Dispose(); }
+        }
+    }
+
+    /// <summary>#41 M6: an office the Prime Minister holds himself (Defense, at the start) is a plain button under his card,
+    /// with no plate for the tag; selected, its rim doubles and the button keeps its size. On a 3840x2160 panel, so a
+    /// logical pixel is wider than a screen pixel and 1 px and 2 px do not snap to the same width.</summary>
+    [UnityTest]
+    public IEnumerator ThePrimeMinistersSelectedOfficeDoublesItsRim()
+    {
+        var rt = new RenderTexture(3840, 2160, 0);
+        var ps = Object.Instantiate(AssetDatabase.LoadAssetAtPath<PanelSettings>(UiPaths.Panel));
+        ps.targetTexture = rt;
+        var go = new GameObject("PmOfficeTest");
+        go.SetActive(false);
+        var doc = go.AddComponent<UIDocument>();
+        doc.panelSettings = ps;
+        doc.visualTreeAsset = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(UiPaths.GameUxml);
+        go.SetActive(true);
+        var root = doc.rootVisualElement;
+        var cabinet = new CabinetPresenter(root, new SimBridge(GameSession.New(C, GoldenRun.Seed, Mode.Historical), Text), Text, null);
+        var nav = new ScreenNav(root);
+        try
+        {
+            root.Q("root").RemoveFromClassList("loading");
+            nav.Open("cabinet");
+            for (int i = 0; i < 4; i++) yield return null;
+            var offices = root.Query<Button>(className: "pm-office").ToList();
+            Assert.IsNotEmpty(offices, "precondition: the Prime Minister holds another office");
+            var office = offices[0];
+            Assert.IsFalse(office.ClassListContains("seat-selected"), "precondition: not selected");
+            float thin = office.resolvedStyle.borderTopWidth; var size = office.worldBound.size;
+            Assert.Greater(thin, 0f, "precondition: an office not selected has a rim");
+            cabinet.Select(office.name.Substring("seat-".Length));
+            for (int i = 0; i < 4; i++) yield return null;
+            Assert.IsTrue(office.ClassListContains("seat-selected"), "precondition: the office is selected");
+            Assert.AreEqual(2f * thin, office.resolvedStyle.borderTopWidth, 0.25f * thin, "the selected office's rim doubles");
+            Assert.Less(Vector2.Distance(size, office.worldBound.size), 0.5f, $"the selected office keeps its size, {size} -> {office.worldBound.size}");
+        }
+        finally { nav.Dispose(); cabinet.Dispose(); Object.DestroyImmediate(go); Object.DestroyImmediate(ps); rt.Release(); Object.DestroyImmediate(rt); }
     }
 
     /// <summary>Both screens at the window shapes the HUD supports (16:9 at 1920x1080 and 1366x768, 16:10, 4:3, 5:4, the

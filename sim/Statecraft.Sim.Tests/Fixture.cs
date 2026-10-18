@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Xunit.Abstractions;
+using Xunit.Sdk;
+
+[assembly: TestFramework("FixtureCleanupFramework", "Statecraft.Sim.Tests")]
 
 /// <summary>Writes a small, valid content set to a temp dir. Tests override single files to test errors.</summary>
 public static class Fixture
@@ -207,32 +211,57 @@ series:
             ["cities.yaml"] = GddCities,
             ["unit_types.yaml"] = GddUnitTypes,
             ["sites.yaml"] = GddSites,
+            ["projects.yaml"] = GddProjects,
         };
         if (extra != null) foreach (var kv in extra) o[kv.Key] = kv.Value;
         return o;
     }
 
     /// <summary>The fixture's attention_cost line with the GDD command kinds added (replaces "map_action: 1 }").</summary>
-    public const string GddCosts = "map_action: 1, assign_workers: 1, train: 1, cancel_training: 1, pioneer_work: 0, stop_work: 0 }";
+    public const string GddCosts = "map_action: 1, assign_workers: 1, train: 1, cancel_training: 1, pioneer_work: 0, stop_work: 0, start_project: 1, cancel_project: 0.5 }";
 
     public const string GddRules = @"
 mvp:
   people_per_unit: 10
   income_per_job_per_year: 1.2
-  cohesion_housing_weight: 0.5
-  cohesion_jobs_weight: 0.5
-  arrivals_city: town_a
+  craftsman_income_multiple: 2
+  city_upkeep_per_year: 0
+  housing_upkeep_per_year: 0
+  industry_upkeep_per_year: 0
+  transit_camp_upkeep_per_year: 0
+  military_camp_upkeep_per_year: 0
+  hakhshara_upkeep_per_year: 0
+  city_arrivals_from: 1948-05-15
   build_yishuv_turns: 3
   build_yishuv_cost: 1.5
+  build_camp_turns: 2
+  build_camp_cost: 1
+  plow_fields_turns: 2
+  plow_fields_cost: 0.5
+  dry_swamp_turns: 3
+  dry_swamp_cost: 2
+  field_food_per_turn: 7
   objective_points: 100
   objective_bonus_per_month: 5
   objective_bonus_cap: 60
+  k_food: 0.1
+  cover_months: 3
+  veteran_halutz_service: 4
+  veteran_progress: 2
+  housing_start_condition: 0.5
+  overflow_condition_loss: 0.2
+  defeat_turns: 3
+  debt_ceiling: 10
+  delegation_loyalty_floor: 5
+  disloyal_effect_share: 0.5
 ";
 
-    public const string GddCities = @"
-cities:
-  - { id: town_a, housing_capacity: 12, job_slots: 8, civilians: 10, employed: 6, facilities: [military_camp, hakhshara] }
-";
+    public static readonly string GddCities = "\ncities:\n" + City("town_a", 12, 8, 10, 6, "[military_camp, hakhshara]");
+
+    /// <summary>One cities.yaml row in the fixture's units (people_per_unit 10): every field a design value (fixture values,
+    /// not history), with the people and the employed share chosen so they convert to the given units (R-CITY-007).</summary>
+    public static string City(string id, int housing, int jobs, int civilians, int employed, string facilities = "[]") =>
+        FormattableString.Invariant($"  - {{ id: {id}, people: {{ value: {civilians * 10}, status: design }}, employed_share: {{ value: {(civilians == 0 ? 0m : (decimal)employed / civilians)}, status: design }}, housing_capacity: {{ value: {housing}, status: design }}, job_slots: {{ value: {jobs}, status: design }}, facilities: {facilities} }}\n");
 
     public const string GddUnitTypes = @"
 types:
@@ -240,7 +269,22 @@ types:
   - { id: refugee, kind: population }
   - { id: recruit, kind: population, facility: military_camp, training_turns: 2, training_cost: 0.5 }
   - { id: halutz, kind: unit, facility: hakhshara, training_turns: 3, training_cost: 0.25 }
+  - { id: craftsman, kind: population, facility: industry, training_turns: 3, training_cost: 0.75 }
 ";
+
+    /// <summary>The three city project kinds (R-PROJ-001). Fixture values, not the game's.</summary>
+    public const string GddProjects = @"
+projects:
+  - { id: housing, name: a housing project, cost: 3, turns: 2, capacity: 4, condition: 0.1, job_slots: 0 }
+  - { id: transit_camp, name: a transit camp, cost: 1, turns: 1, capacity: 3, condition: -0.1, job_slots: 0 }
+  - { id: industry, name: an industry project, cost: 2, turns: 2, capacity: 0, condition: 0, job_slots: 3 }
+";
+
+    /// <summary>A city's resources key with vineyards and a fixture source (R-PROJ-005), to add to a <see cref="City"/> row.</summary>
+    public const string Vineyards = @"resources: [{ id: vineyards, sources: [{ url: ""https://example.org/vineyards"", checked: 2026-10-18 }], to_verify: a fixture note }]";
+
+    /// <summary>A projects.yaml kind that requires vineyards (R-PROJ-005), to add to <see cref="GddProjects"/>. Fixture values.</summary>
+    public const string Winery = "  - { id: winery, name: a winery, cost: 2, turns: 2, capacity: 0, condition: 0, job_slots: 6, requires: vineyards }\n";
 
     /// <summary>One designated site on a land hex next to town_a, with no settlement on it. Fixture values, not history.</summary>
     public const string GddSites = @"
@@ -257,9 +301,18 @@ sites:
     status: fact-checked
 ";
 
+    // Every Write goes under one root per test run, which FixtureCleanupFramework deletes when the run ends.
+    // One folder per call (~1,150 per `dotnet test` run) used to stay behind (#1017).
+    static readonly string Root = Path.Combine(Path.GetTempPath(), "statecraft-fixture-" + Guid.NewGuid().ToString("N"));
+
+    public static void DeleteAll()
+    {
+        if (Directory.Exists(Root)) Directory.Delete(Root, recursive: true);
+    }
+
     public static string Write(Dictionary<string, string>? overrides = null, Dictionary<string, string>? events = null)
     {
-        var dir = Path.Combine(Path.GetTempPath(), "statecraft-fixture-" + Guid.NewGuid().ToString("N"));
+        var dir = Path.Combine(Root, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path.Combine(dir, "events"));
         Directory.CreateDirectory(Path.Combine(dir, "map"));
         foreach (var kv in Files)
@@ -270,5 +323,20 @@ sites:
         if (events != null)
             foreach (var kv in events) File.WriteAllText(Path.Combine(dir, "events", kv.Key), kv.Value);
         return dir;
+    }
+}
+
+// xunit 2 has no assembly teardown; the test framework is disposed once the run is over, while the
+// test host still waits for it. ProcessExit is too late: the host is killed mid-delete (measured: 845 of
+// 1,156 folders were still there). TestFramework.Dispose is not virtual, so IDisposable is re-implemented.
+public sealed class FixtureCleanupFramework : XunitTestFramework, IDisposable
+{
+    public FixtureCleanupFramework(IMessageSink sink) : base(sink) { }
+
+    void IDisposable.Dispose()
+    {
+        try { Fixture.DeleteAll(); }
+        catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { }   // a file held open (antivirus on Windows) must not fail a green run
+        base.Dispose();
     }
 }

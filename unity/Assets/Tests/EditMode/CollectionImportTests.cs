@@ -9,7 +9,7 @@ using UnityEditor.Animations;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-/// <summary>The 1948 Collection's 31 non-building models (issue #664; Tal's Tripo models from #507, slimmed by
+/// <summary>The 1948 Collection's 31 non-building models (issue #664; MATKOT's Tripo models from #507, slimmed by
 /// tools/slim_collection.py under the owner's ruling of 15 October 2026, "Plain git, slimmed first") are imported to load
 /// light (the maintainer's gate: "we need to make sure this is built in a way that doesnt make the game extremely hard to
 /// load"): nothing under a Resources folder; each model a far mesh of at most 1,500 triangles (4,500 for a vehicle, ship
@@ -19,12 +19,12 @@ using UnityEngine.Rendering;
 public class CollectionImportTests
 {
     const string Folder = CollectionCatalog.Folder;
-    const int MaxTextureSize = 512, FarTriangles = 1500, FarTrianglesVehicle = 4500, NearTriangles = 8000;
+    const int MaxTextureSize = 512, FarTriangles = 1500, FarTrianglesVehicle = 4500, FarTrianglesTown = 4500, NearTriangles = 8000;
 
     static string Dir(string id) => $"{Folder}/{id}";
     static string Model(string id, string level) => $"{Dir(id)}/{id}-{level}.fbx";
     static string ColourMap(string id) => $"{Dir(id)}/{id}_basecolor.jpg";
-    static IEnumerable<string> Ids => CollectionCatalog.Ids;
+    static IEnumerable<string> Ids => CollectionCatalog.Ids.Where(id => CollectionCatalog.BundleOf(id) != CollectionCatalog.Buildings);
     static bool Animated(string id) => CollectionCatalog.Animated.Contains(id);
 
     static bool UnderResources(string path) => path.Split('/').Any(s => s.Equals("Resources", StringComparison.OrdinalIgnoreCase));
@@ -32,8 +32,12 @@ public class CollectionImportTests
     /// <summary>Found by #668's WebGL build: every Build.* ran BuildBundles, which copied the bundles into
     /// StreamingAssets/collection without their .manifest files and then asked Unity for each one's CRC there, which Unity
     /// reads from the .manifest: "no CRC for the bundle", and no player build since #680. The real path, for the editor's
-    /// build target: the shipped folder holds the bundles and a checks file whose every line matches its bundle.</summary>
-    [Test]
+    /// build target: the shipped folder holds the bundles and a checks file whose every line matches its bundle.
+    /// The timeout is 10 minutes, not Unity's default 3 (#759). Nearly all of the time is BuildAssetBundles: 0.1 s with
+    /// the bundles already built, 5 s without them, 42 s in a fresh Library clone (its first build imports and compiles
+    /// for the target), and 240-249 s in six fresh clones built at once at a load of about 20. 600 s is 2.4 times the
+    /// slowest run seen. Unity checks the timeout when the test returns; it does not abort a running build.</summary>
+    [Test, Timeout(600000)]
     public void BuildBundlesWritesTheChecksBesideTheShippedBundles()
     {
         var t = Type.GetType("Statecraft.Game.EditorTools.CollectionImport, Assembly-CSharp-Editor");
@@ -57,17 +61,63 @@ public class CollectionImportTests
     }
 
     [Test]
-    public void TheCatalogHasThe31ModelsOfIssue664InThreeBundles()
+    public void TheCatalogHasThe31ModelsNineTownsAndFiveSpecialBuildingsInFiveBundles()
     {
-        var ids = Ids.ToList();
-        Assert.AreEqual(31, ids.Count);
+        var ids = CollectionCatalog.Ids.ToList();
+        Assert.AreEqual(45, ids.Count);
         Assert.AreEqual(ids.Count, ids.Distinct().Count(), "an id in two bundles");
-        CollectionAssert.AreEqual(new[] { 12, 13, 6 }, CollectionCatalog.Bundles.Select(b => b.Ids.Length), "people, vehicles, animals");
+        CollectionAssert.AreEqual(new[] { 12, 13, 6, 9, 5 }, CollectionCatalog.Bundles.Select(b => b.Ids.Length), "people, vehicles, animals, towns, special buildings");
         Assert.AreEqual(13, CollectionCatalog.Animated.Count);
         CollectionAssert.IsSubsetOf(CollectionCatalog.Animated, ids);
         CollectionAssert.DoesNotContain(CollectionCatalog.Animated, "figure-c05-pioneer-veteran-v2", "C05's only idle is a walk");
         Assert.AreEqual(CollectionCatalog.Vehicles, CollectionCatalog.BundleOf("vehicle-altalena-lst-1948-v2wl"));
         Assert.IsNull(CollectionCatalog.BundleOf("b07-kibbutz-dining-hall-v2"), "the buildings are #659's");
+    }
+
+    [Test]
+    public void TheFiveSpecialBuildingsUsePrototypeAssetsInTheirOwnStreamedBundle()
+    {
+        var ids = new[] { "b11-shikun-housing-v2", "b12-tegart-fort-v2", "b18-military-barracks-v2", "b21-artisan-workshop-v2", "b22-industrial-factory-v2" };
+        CollectionAssert.AreEqual(ids, CollectionCatalog.Bundles.Single(b => b.Bundle == CollectionCatalog.Buildings).Ids);
+        foreach (var id in ids)
+        {
+            Assert.AreEqual(CollectionCatalog.Buildings, CollectionCatalog.BundleOf(id));
+            var path = CollectionCatalog.PrefabPath(id, CollectionDetail.Near);
+            StringAssert.StartsWith("Assets/Art/Settlements/Prototype/Models/", path);
+            Assert.IsNotNull(AssetDatabase.LoadAssetAtPath<GameObject>(path), path);
+            Assert.IsFalse(UnderResources(path));
+        }
+    }
+
+    /// <summary>Issue #663, owner ruling of 17 October 2026: "The nine whole-town models ship ... slimmed, streamed after the
+    /// first frame, and pass the load gate". MATKOT's nine from #507 are the towns bundle, streamed like
+    /// the rest; the Jerusalem 3denhance variant is #336's only, under its custom licence, so it is not here (#708).</summary>
+    [Test]
+    public void TheNineWholeTownModelsOf507AreTheStreamedTownsBundleAndNoneIsUnderResources()
+    {
+        var towns = new[]
+        {
+            "tel-aviv-white-city-v1", "jerusalem-stone-city-v1", "haifa-port-city-v1", "moshava-town-v1", "nahalal-moshav-v1",
+            "kibbutz-compound-v2", "stone-village-v1", "maabara-camp-v1", "shikun-housing-v1",
+        };
+        foreach (var id in towns)
+        {
+            Assert.AreEqual(CollectionCatalog.Towns, CollectionCatalog.BundleOf(id), id);
+            CollectionAssert.DoesNotContain(CollectionCatalog.Animated, id, id + " is one static mesh");
+            foreach (var d in new[] { CollectionDetail.Far, CollectionDetail.Near })
+            {
+                var path = CollectionCatalog.PrefabPath(id, d);
+                Assert.IsNotNull(AssetDatabase.LoadAssetAtPath<GameObject>(path), path);
+                Assert.IsFalse(UnderResources(path), path);
+            }
+        }
+        CollectionAssert.AreEqual(towns, CollectionCatalog.Bundles.Single(b => b.Bundle == CollectionCatalog.Towns).Ids);
+        Assert.IsNull(CollectionCatalog.BundleOf("jerusalem-stone-city-v1-3denhance"), "#336 only: waits for its author's licence line (#708, #886)");
+        var t = Type.GetType("Statecraft.Game.EditorTools.CollectionImport, Assembly-CSharp-Editor");
+        var builds = (AssetBundleBuild[])t!.GetMethod("Builds")!.Invoke(null, null)!;
+        Assert.IsTrue(builds.Any(b => b.assetBundleName == CollectionCatalog.Towns), "the towns are built as their own bundle");
+        // No copy of a town model anywhere under a Resources folder (#507 shipped them all in one).
+        CollectionAssert.IsEmpty(towns.SelectMany(id => AssetDatabase.FindAssets(id)).Select(AssetDatabase.GUIDToAssetPath).Where(UnderResources));
     }
 
     [Test]
@@ -135,10 +185,11 @@ public class CollectionImportTests
     }
 
     [Test]
-    public void EveryFarModelIsOneStaticMeshOfAtMost1500TrianglesOr4500ForAVehicle()
+    public void EveryFarModelIsOneStaticMeshOfAtMost1500TrianglesOr4500ForAVehicleOrATown()
     {
         foreach (var id in Ids)
-            AssertStatic(Model(id, "far"), CollectionCatalog.BundleOf(id) == CollectionCatalog.Vehicles ? FarTrianglesVehicle : FarTriangles);
+            AssertStatic(Model(id, "far"), CollectionCatalog.BundleOf(id) == CollectionCatalog.Towns ? FarTrianglesTown
+                : CollectionCatalog.BundleOf(id) == CollectionCatalog.Vehicles ? FarTrianglesVehicle : FarTriangles);
     }
 
     [Test]
@@ -249,7 +300,8 @@ public class CollectionImportTests
         {
             var entries = ids.SelectMany(id => new[] { CollectionDetail.Far, CollectionDetail.Near }.Select(d => CollectionCatalog.PrefabPath(id, d))).ToArray();
             foreach (var e in entries) Assert.IsNotNull(AssetDatabase.LoadAssetAtPath<GameObject>(e), e);
-            var folders = ids.Select(id => Dir(id) + "/").ToArray();
+            var folders = ids.Select(id => CollectionCatalog.BundleOf(id) == CollectionCatalog.Buildings
+                ? $"Assets/Art/Settlements/Prototype/Models/{id}/" : Dir(id) + "/").ToArray();
             var deps = AssetDatabase.GetDependencies(entries, true);
             var outside = deps.Where(d => !folders.Any(f => d.StartsWith(f, StringComparison.Ordinal))
                 && !d.StartsWith("Packages/com.unity.render-pipelines.", StringComparison.Ordinal)).ToArray();
@@ -267,7 +319,7 @@ public class CollectionImportTests
         var builds = (AssetBundleBuild[])t!.GetMethod("Builds")!.Invoke(null, null)!;
         CollectionAssert.AreEqual(CollectionCatalog.Bundles.Select(b => b.Bundle), builds.Select(b => b.assetBundleName));
         foreach (var (b, (bundle, ids)) in builds.Zip(CollectionCatalog.Bundles, (b, c) => (b, c)))
-            CollectionAssert.AreEquivalent(ids.SelectMany(id => new[] { CollectionCatalog.PrefabPath(id, CollectionDetail.Far), CollectionCatalog.PrefabPath(id, CollectionDetail.Near) }),
+            CollectionAssert.AreEquivalent(ids.SelectMany(id => new[] { CollectionCatalog.PrefabPath(id, CollectionDetail.Far), CollectionCatalog.PrefabPath(id, CollectionDetail.Near) }).Distinct(),
                 b.assetNames, bundle);
     }
 }

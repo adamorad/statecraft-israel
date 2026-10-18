@@ -22,24 +22,30 @@ public class ReferencePlayerTests
         return s;
     }
 
+    /// <summary>It sends no AssignWorkers: R-CITY-009's default fills the jobs on the housing step, and an order would turn
+    /// that city's default off (GDD Phase 3 PR 5; before it, the player sent min(jobs, civilians) itself).</summary>
     [Fact]
-    public void ItSendsHistoricalAIsOrdersThenFillsTheJobsThenTrainsOneHalutzGroup()
+    public void ItSendsHistoricalAIsOrdersThenTrainsOneHalutzGroupAndLeavesTheJobsToTheDefault()
     {
         var s = Start();
+        s.Cities["tel_aviv"] = s.Cities["tel_aviv"].WithCounts(248, 96, 0);   // the start fills every job (Q-START-1): free 10
         var orders = ReferencePlayer.Commands(Mvp, s);
         var history = HistoricalAI.Commands(Mvp, s);
         Assert.Equal(history.Select(x => x.Kind), orders.Take(history.Count).Select(x => x.Kind));
-        Assert.Equal(history.Count + 2, orders.Count);
-        var assign = Assert.IsType<AssignWorkers>(orders[history.Count]);
-        Assert.Equal(("tel_aviv", "job", 90), (assign.City, assign.Role, assign.Count));   // min(90 jobs, 100 civilians)
+        Assert.Equal(history.Count + 1, orders.Count);
+        Assert.DoesNotContain(orders, x => x is AssignWorkers);
         var train = Assert.IsType<Train>(orders.Last());
-        Assert.Equal(("tel_aviv", "halutz", 1), (train.City, train.Track, train.Count));   // 10 civilians left without work
-        Assert.Empty(Simulation.Step(Mvp, s, orders).Rejected);
+        Assert.Equal(("tel_aviv", "halutz", 1), (train.City, train.Track, train.Count));   // 152 civilians without work
+        var r = Simulation.Step(Mvp, s, orders);
+        Assert.Empty(r.Rejected);
+        var city = r.State.Cities["tel_aviv"];
+        Assert.Equal((247, 106, true), (city.Civilians, city.Employed, city.JobsDefault));   // min(106 jobs, 247 civilians)
     }
 
-    /// <summary>The real start: the 15 May card (idf_founding) is answered first, at full war's price, and the jobs are
-    /// filled; the halutz group no longer fits that turn's 4 Attention (Q-CUT-5 keeps 4), so the player trains on the first
-    /// later turn that has the Attention (the turn from 15 August 1948 in the golden run), and every order it sends is taken.</summary>
+    /// <summary>The real start: the 15 May card (idf_founding) is answered first, at full war's price. The cities start with
+    /// every job filled (Q-START-1: job slots equal the start employed), so no AssignWorkers takes Attention, and the halutz
+    /// group fits the rest of that turn's 4 Attention (Q-CUT-5): the player trains on the first turn, 15 May 1948 (before
+    /// GDD Phase 3 PR 1 it filled Tel Aviv's jobs first and trained from 15 August 1948). Every order it sends is taken.</summary>
     [Fact]
     public void OnTheRealStartItAnswersTheCardFirstAndTrainsWhenAttentionAllows()
     {
@@ -47,8 +53,8 @@ public class ReferencePlayerTests
         Assert.Contains("idf_founding", s.PendingEvents);
         var first = ReferencePlayer.Commands(Mvp, s);
         Assert.IsType<ChooseEventOption>(first[0]);
-        Assert.Contains(first, x => x is AssignWorkers);
-        Assert.DoesNotContain(first, x => x is Train);
+        Assert.DoesNotContain(first, x => x is AssignWorkers);
+        Assert.Contains(first, x => x is Train);
         DateTime? trained = null;
         while (trained == null && s.GameOver == null && s.Turn < 1000)
         {
@@ -58,7 +64,7 @@ public class ReferencePlayerTests
             if (orders.Any(x => x is Train)) trained = s.Date;
             s = r.State;
         }
-        Assert.Equal(new DateTime(1948, 8, 15), trained);
+        Assert.Equal(new DateTime(1948, 5, 15), trained);
     }
 
     // R-TRAIN-001: the stated policy trains a halutz group only when there is none, none in training, a civilian without
@@ -79,7 +85,7 @@ public class ReferencePlayerTests
         trained.Units.Add(1, new Unit(1, "halutz", -3, 19));
         Assert.DoesNotContain(ReferencePlayer.Commands(Mvp, trained), x => x is Train);
         var busy = s.Clone();
-        busy.Cities["tel_aviv"] = busy.Cities["tel_aviv"].WithCounts(90, 80, 0);   // 90 jobs: all of them filled
+        busy.Cities["tel_aviv"] = busy.Cities["tel_aviv"].WithCounts(106, 106, 0);   // 106 jobs: all filled, nobody free
         Assert.DoesNotContain(ReferencePlayer.Commands(Mvp, busy), x => x is Train);
         var poor = s.Clone();
         poor.Treasury = 0;   // training borrows (owner decision, 2026-10-15): an empty Treasury does not hold it back
@@ -96,16 +102,40 @@ public class ReferencePlayerTests
         s.Units.Add(8, new Unit(8, "halutz", -3, 19));
         s.NextId = 9;
         s.Treasury = 10;
-        var build = Assert.Single(ReferencePlayer.Commands(Mvp, s).OfType<PioneerWork>());   // one site: the second group waits
-        Assert.Equal((7, "build_yishuv", "mefalsim"), (build.Unit, build.Action, build.Site));
+        // Two groups, six yishuv sites (Q-SITE-1, #785): each group takes the next free site in ordinal id order.
+        var builds = ReferencePlayer.Commands(Mvp, s).OfType<PioneerWork>().ToList();
+        Assert.Equal(new[] { (7, "build_yishuv", "beit_kama"), (8, "build_yishuv", "beit_shemesh") }, builds.Select(b => (b.Unit, b.Action, b.Site)));
         Assert.Empty(Simulation.Step(Mvp, s, ReferencePlayer.Commands(Mvp, s)).Rejected);
 
-        var building = s.Clone();
-        building.Sites["mefalsim"] = new SiteWork("mefalsim", 7, 3, null);
-        Assert.DoesNotContain(ReferencePlayer.Commands(Mvp, building), x => x is PioneerWork);
-        var built = s.Clone();
-        built.Sites["mefalsim"] = SiteWork.Built("mefalsim", new DateTime(1949, 6, 15));
-        Assert.DoesNotContain(ReferencePlayer.Commands(Mvp, built), x => x is PioneerWork);
+        var oneLeft = s.Clone();
+        oneLeft.Units.Add(9, new Unit(9, "halutz", -3, 19));   // a site being built names its unit (SiteWork, R-VET-002)
+        oneLeft.NextId = 10;
+        oneLeft.Sites["beit_kama"] = new SiteWork("beit_kama", 9, 3, null);
+        oneLeft.Sites["beit_shemesh"] = SiteWork.Built("beit_shemesh", new DateTime(1949, 6, 15));
+        oneLeft.Sites["gilat"] = SiteWork.Built("gilat", new DateTime(1949, 6, 15));
+        oneLeft.Sites["kiryat_shmona"] = SiteWork.Built("kiryat_shmona", new DateTime(1949, 6, 15));
+        oneLeft.Sites["mefalsim"] = SiteWork.Built("mefalsim", new DateTime(1949, 6, 15));
+        // One yishuv site left: the first group takes it, and the second plows the first ready field (R-FIELD-001).
+        var last = ReferencePlayer.Commands(Mvp, oneLeft).OfType<PioneerWork>().ToList();
+        Assert.Equal(new[] { (7, "build_yishuv", "reim"), (8, "plow_fields", "beit_shemesh_field") }, last.Select(b => (b.Unit, b.Action, b.Site)));
+        var none = oneLeft.Clone();
+        none.Sites["reim"] = new SiteWork("reim", 7, 3, null);
+        // Every yishuv site taken: the idle group plows the first ready field, beit_shemesh_field (beit_kama is still being
+        // built, so its field is not ready).
+        var plow = Assert.Single(ReferencePlayer.Commands(Mvp, none).OfType<PioneerWork>());
+        Assert.Equal((8, "plow_fields", "beit_shemesh_field"), (plow.Unit, plow.Action, plow.Site));
+        Assert.Empty(Simulation.Step(Mvp, none, ReferencePlayer.Commands(Mvp, none)).Rejected);
+        // Every ready field taken too: the idle group builds the first camp site (R-CAMP-001).
+        none.Sites["beit_shemesh_field"] = SiteWork.Built("beit_shemesh_field", new DateTime(1949, 6, 15));
+        none.Sites["gilat_field"] = SiteWork.Built("gilat_field", new DateTime(1949, 6, 15));
+        none.Sites["kiryat_shmona_field"] = SiteWork.Built("kiryat_shmona_field", new DateTime(1949, 6, 15));
+        none.Sites["mefalsim_field"] = SiteWork.Built("mefalsim_field", new DateTime(1949, 6, 15));
+        var camp = Assert.Single(ReferencePlayer.Commands(Mvp, none).OfType<PioneerWork>());
+        Assert.Equal((8, "build_camp", "camp_80"), (camp.Unit, camp.Action, camp.Site));
+        // Every camp site taken as well: the idle group waits.
+        none.Sites["camp_80"] = SiteWork.Built("camp_80", new DateTime(1949, 6, 15));
+        none.Sites["tzrifin"] = SiteWork.Built("tzrifin", new DateTime(1949, 6, 15));
+        Assert.DoesNotContain(ReferencePlayer.Commands(Mvp, none), x => x is PioneerWork);
         var poor = s.Clone();
         poor.Treasury = 0;
         Assert.Contains(ReferencePlayer.Commands(Mvp, poor), x => x is PioneerWork);
@@ -160,20 +190,25 @@ public class ReferencePlayerTests
     {
         var s = Simulation.NewGame(Mvp, GoldenRun.Seed, Mode.Historical);
         var full = s.Clone();
-        full.Cities["tel_aviv"] = full.Cities["tel_aviv"].WithCounts(100, 90, 0);
+        full.Cities["tel_aviv"] = full.Cities["tel_aviv"].WithCounts(120, 106, 0);   // all 106 jobs filled
         Assert.DoesNotContain(ReferencePlayer.Commands(Mvp, full), x => x is AssignWorkers);
         var tired = s.Clone();
         tired.Attention = 0;
         Assert.Empty(ReferencePlayer.Commands(Mvp, tired));
     }
 
+    /// <summary>With more jobs than civilians, the default (not the player) fills no more jobs than there are civilians.</summary>
     [Fact]
     public void ItFillsNoMoreJobsThanThereAreCivilians()
     {
         var s = Simulation.NewGame(Mvp, GoldenRun.Seed, Mode.Historical);
-        s.Cities["tel_aviv"] = s.Cities["tel_aviv"].WithCounts(50, 40, 0);   // 90 jobs, 50 civilians
-        var assign = Assert.IsType<AssignWorkers>(ReferencePlayer.Commands(Mvp, s).Last());
-        Assert.Equal(50, assign.Count);
+        s.Cities["tel_aviv"] = s.Cities["tel_aviv"].WithCounts(50, 40, 0);   // 106 jobs, 50 civilians
+        var orders = ReferencePlayer.Commands(Mvp, s);
+        Assert.DoesNotContain(orders, x => x is AssignWorkers);
+        var r = Simulation.Step(Mvp, s, orders);
+        Assert.Empty(r.Rejected);
+        var city = r.State.Cities["tel_aviv"];
+        Assert.Equal((city.Civilians, true), (city.Employed, city.JobsDefault));   // every civilian left (training takes its group first)
     }
 
     [Fact]

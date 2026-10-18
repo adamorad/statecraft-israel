@@ -7,7 +7,7 @@
         <ui:VisualElement name="map-labels" class="map-labels" picking-mode="Ignore" />
         <!-- HUD round 2, part 2 (#398): promo 03's left icon column, the four screens (ScreenNav), icon-only; each one's name
              is its text (the event log records it), hidden, and its tooltip, shown beside it on hover and on focus
-             (HoverTip). Before the top bar in the tree, so Tab still runs Cabinet, Budget, Defence, Why?, New Game, End Turn. -->
+             (HoverTip). Before the top bar in the tree, so Tab still runs Cabinet, Budget, Defence, Why?, Settings, New Game, End Turn. -->
         <!-- The left column's strip of the decision card's backdrop (review of #602): dimmed and taking the pointer while the
              card is open (event-modal), so the map is blocked between and below the discs as it is everywhere else; before
              the column in the tree, so the column's buttons stay above it and usable. -->
@@ -17,6 +17,7 @@
             <ui:Button name="nav-budget" text="Budget" class="nav-button rail-button"><Statecraft.Game.UI.UiIcon glyph="ledger" class="nav-disc" /></ui:Button>
             <ui:Button name="nav-defence" text="Defence" class="nav-button rail-button"><Statecraft.Game.UI.UiIcon glyph="helmet" class="nav-disc" /></ui:Button>
             <ui:Button name="nav-why" text="Why?" class="nav-button rail-button"><Statecraft.Game.UI.UiIcon glyph="question" class="nav-disc" /></ui:Button>
+            <ui:Button name="nav-settings" text="Settings" class="nav-button rail-button"><Statecraft.Game.UI.UiIcon glyph="gear" class="nav-disc" /></ui:Button>
         </ui:VisualElement>
         <ui:VisualElement name="top-bar" class="panel top-bar">
             <Statecraft.Game.UI.UiFrame corners="false" rule="false" />
@@ -38,7 +39,7 @@
                 <ui:VisualElement name="meter-treasury" class="meter">
                     <Statecraft.Game.UI.UiIcon glyph="coin" class="meter-icon" />
                     <ui:VisualElement class="meter-body">
-                        <ui:Label text="Money" class="meter-name" />
+                        <ui:Label text="Money (net)" class="meter-name" />
                         <ui:VisualElement class="meter-row"><ui:Label name="treasury-value" class="meter-value" /><ui:Label name="treasury-delta" class="meter-delta" /></ui:VisualElement>
                     </ui:VisualElement>
                 </ui:VisualElement>
@@ -62,6 +63,14 @@
                     <ui:VisualElement class="meter-body">
                         <ui:Label text="Public support" class="meter-name" />
                         <ui:VisualElement class="meter-row"><ui:Label name="support-value" class="meter-value" /><ui:Label name="support-delta" class="meter-delta" /></ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <!-- Social cohesion (#380): shown only in the GDD loop (HudModel.ShowsCohesion). -->
+                <ui:VisualElement name="meter-cohesion" class="meter">
+                    <Statecraft.Game.UI.UiIcon glyph="rings" class="meter-icon" />
+                    <ui:VisualElement class="meter-body">
+                        <ui:Label text="Social cohesion" class="meter-name" />
+                        <ui:VisualElement class="meter-row"><ui:Label name="cohesion-value" class="meter-value" /><ui:Label name="cohesion-delta" class="meter-delta" /></ui:VisualElement>
                     </ui:VisualElement>
                 </ui:VisualElement>
                 <ui:VisualElement name="meter-standing" class="meter">
@@ -129,6 +138,9 @@
                 </ui:VisualElement>
                 <ui:Label name="info-reason" class="reason" />
             </ui:VisualElement>
+            <!-- The GDD loop's city counts and orders, or the designated site's state and Build/Stop (GddHexPanel, #381): a
+                 second column beside the hex's facts, under them on the two- and three-row HUD (Statecraft.uss .info-gdd). -->
+            <ui:VisualElement name="info-gdd" class="info-gdd" />
             <Statecraft.Game.UI.UiFrame filigree="true" />
         </ui:VisualElement>
         <!-- The decision layer under the top bar (decision cards, 2026-10-13): while an event is open a dim backdrop blocks the
@@ -156,7 +168,7 @@
                     </ui:VisualElement>
                 </ui:VisualElement>
                 <ui:VisualElement class="gold-rule" />
-                <ui:ScrollView name="event-scroll" class="event-scroll"><ui:Label name="event-text" class="event-text" /></ui:ScrollView>
+                <ui:ScrollView name="event-scroll" class="event-scroll"><ui:Label name="event-text" class="event-text" /><ui:Label name="event-objective" class="muted event-objective" /></ui:ScrollView>
                 <ui:VisualElement name="event-options" />
                 <!-- The count of other open decisions, and Hide: the card collapses to "Decision waiting" so the map can be
                      inspected (EventCardPresenter.Collapse); focus order: the options, then Hide. -->
@@ -280,6 +292,25 @@
         <ui:VisualElement name="screen-why" class="panel screen">
             <ui:VisualElement class="screen-header"><ui:Label name="why-screen-title" text="Why did this happen?" class="title" /><ui:Label name="why-turn" class="muted" /></ui:VisualElement>
             <ui:ScrollView name="why-rows" class="grow" />
+            <Statecraft.Game.UI.UiFrame />
+        </ui:VisualElement>
+        <!-- Settings (#40, SettingsPresenter): the player's presentation options, kept per browser (SettingsStore), never in
+             the sim or the save. Each option is a row: its name, and a button that says what is set. -->
+        <ui:VisualElement name="screen-settings" class="panel screen">
+            <ui:VisualElement class="screen-header"><ui:Label name="settings-screen-title" text="Settings" class="title" /></ui:VisualElement>
+            <ui:VisualElement class="row settings-row">
+                <ui:Label name="settings-tiltshift-label" text="Blur at the top and bottom of the map" class="settings-name" />
+                <ui:Button name="settings-tiltshift" class="settings-switch" />
+            </ui:VisualElement>
+            <!-- Graphics quality (GraphicsQuality): three buttons, the one that is set carries .settings-choice-selected. -->
+            <ui:VisualElement class="row settings-row">
+                <ui:Label name="settings-quality-label" text="Quality" class="settings-name" />
+                <ui:VisualElement class="row settings-choices">
+                    <ui:Button name="settings-quality-auto" text="Automatic" class="settings-switch" />
+                    <ui:Button name="settings-quality-high" text="High" class="settings-switch" />
+                    <ui:Button name="settings-quality-low" text="Low" class="settings-switch" />
+                </ui:VisualElement>
+            </ui:VisualElement>
             <Statecraft.Game.UI.UiFrame />
         </ui:VisualElement>
         <!-- The End Turn outcome clip (OutcomePresenter): the historical order the player gave, as a 3.5 s silent clip in the
